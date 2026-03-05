@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Instagram, ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Instagram, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 /**
@@ -128,7 +128,7 @@ export function HeroSection() {
             href="/"
             className="group inline-flex items-center gap-3 px-8 py-4 sm:px-10 sm:py-5 bg-white text-gray-900 rounded-full font-bold text-lg shadow-2xl hover:shadow-white/25 transition-all duration-300 hover:scale-105 min-h-[56px]"
           >
-            <span>묣은 분석 받아보기</span>
+            <span>무료 분석 받아보기</span>
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </Link>
         </motion.div>

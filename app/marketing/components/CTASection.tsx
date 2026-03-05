@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowRight, Sparkles, Instagram } from "lucide-react";
+import { ArrowRight, Instagram, Sparkles } from "lucide-react";
 import Link from "next/link";
 
 /**
@@ -69,7 +69,7 @@ export function CTASection() {
         >
           나의 인스타그램을
           <br />
-          새롭게 발견핳 준비가 되셨나요?
+          새롭게 발견할 준비가 되셨나요?
         </motion.h2>
 
         {/* 설명 */}
@@ -122,7 +122,7 @@ export function CTASection() {
                 clipRule="evenodd"
               />
             </svg>
-            <span>묣은 이용</span>
+            <span>무료 이용</span>
           </div>
           <div className="flex items-center gap-2">
             <svg

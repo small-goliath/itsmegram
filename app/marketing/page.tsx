@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { HeroSection } from "./components/HeroSection";
-import { FeaturesSection } from "./components/FeaturesSection";
-import { PreviewSection } from "./components/PreviewSection";
-import { HowItWorksSection } from "./components/HowItWorksSection";
 import { CTASection } from "./components/CTASection";
+import { FeaturesSection } from "./components/FeaturesSection";
+import { HeroSection } from "./components/HeroSection";
+import { HowItWorksSection } from "./components/HowItWorksSection";
 import { MarketingNav } from "./components/MarketingNav";
+import { PreviewSection } from "./components/PreviewSection";
 
 /**
  * 마케팅 페이지 메타데이터
@@ -13,7 +13,7 @@ import { MarketingNav } from "./components/MarketingNav";
 export const metadata: Metadata = {
   title: "itsmegram - AI 인스타그램 분석 서비스",
   description:
-    "AI로 나의 인스타그램을 분석하고 콘텐츠 성향, 라이프스타일, 성격 특징을 발견하세요. 묣은 리포트를 생성하고 친구들과 공유핳세요.",
+    "AI로 나의 인스타그램을 분석하고 콘텐츠 성향, 라이프스타일, 성격 특징을 발견하세요. 무료 리포트를 생성하고 친구들과 공유하세요.",
   keywords: [
     "인스타그램 분석",
     "AI 분석",
@@ -91,7 +91,7 @@ export default function MarketingPage() {
               </span>
             </div>
             <p className="text-sm text-gray-400">
-              © 2025 itsmegram. All rights reserved.
+              © 2026 itsmegram. All rights reserved.
             </p>
           </div>
           <p className="text-xs text-gray-500 mt-4 text-center sm:text-left">

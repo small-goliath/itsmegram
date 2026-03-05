@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Body
 
 logger = structlog.get_logger()
 
@@ -525,3 +525,73 @@ async def list_reports() -> dict:
         "total_count": 0,
         "message": "Report listing not fully implemented yet",
     }
+
+
+@router.post(
+    "/report/{report_id}/share",
+    summary="리포트 공유 트래킹",
+    description="리포트 공유 이벤트를 트래킹합니다. 플랫폼별 공유 횟수를 수집합니다.",
+    responses={
+        200: {"description": "공유 이벤트 기록 성공"},
+        404: {"model": ErrorResponse, "description": "리포트를 찾을 수 없음"},
+        500: {"model": ErrorResponse, "description": "서버 오류"},
+    },
+)
+async def track_share(
+    report_id: str,
+    platform: str = Body(..., embed=True),
+) -> dict:
+    """
+    리포트 공유 이벤트를 트래킹합니다.
+
+    Args:
+        report_id: 리포트 ID
+        platform: 공유 플랫폼 (instagram, twitter, facebook, native, download 등)
+
+    Returns:
+        dict: 트래킹 결과
+    """
+    try:
+        # 리포트 존재 여부 확인
+        report = await report_service.get_report(report_id)
+
+        if not report:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report '{report_id}' not found",
+            )
+
+        # 공유 이벤트 로깅
+        logger.info(
+            "report_shared",
+            report_id=report_id,
+            platform=platform,
+            username=report.username,
+            timestamp=datetime.now().isoformat(),
+        )
+
+        # TODO: 실제 analytics 서비스 연동
+        # await analytics.track("report_shared", {
+        #     "report_id": report_id,
+        #     "platform": platform,
+        #     "username": report.username,
+        #     "timestamp": datetime.now().isoformat(),
+        # })
+
+        return {
+            "success": True,
+            "report_id": report_id,
+            "platform": platform,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("share_tracking_error", report_id=report_id, error=str(e))
+        # 트래킹 실패는 사용자에게 영향을 주지 않도록 200 반환
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Tracking failed but share was successful",
+        }

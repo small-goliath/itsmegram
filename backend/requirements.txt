@@ -31,3 +31,6 @@ python-dateutil==2.9.0
 
 # Instagram 데이터 수집
 instaloader==4.14
+
+# AI 분석 (Moonshot AI)
+openai>=1.0.0

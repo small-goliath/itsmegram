@@ -4,8 +4,10 @@ AI 분석 라우터
 """
 
 import uuid
+import asyncio
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, status, Depends, Request
+from typing import Dict, Any
+from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -18,13 +20,50 @@ from app.models.schemas import (
     AIInsight,
     ReportData,
     ErrorResponse,
+    InstagramData,
 )
 from app.config import get_settings
+from app.services.instagram_service import instagram_service
+from app.services.ai_service import ai_service, AIServiceError, MoonshotAPIError, AnalysisTimeoutError
 
 router = APIRouter()
 
 # In-memory storage for demo (production에서는 Redis 사용 권장)
-analysis_jobs = {}
+analysis_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+async def _run_analysis_background(report_id: str, username: str):
+    """
+    백그라운드에서 AI 분석 수행
+    """
+    try:
+        analysis_jobs[report_id]["progress"] = 10
+        analysis_jobs[report_id]["message"] = "인스타그램 데이터 수집 중..."
+
+        # 인스타그램 데이터 수집
+        instagram_data = await instagram_service.fetch_full_data(
+            username=username,
+            posts_limit=20,
+            use_cache=True,
+        )
+
+        analysis_jobs[report_id]["progress"] = 40
+        analysis_jobs[report_id]["message"] = "AI 분석 중..."
+
+        # AI 분석 수행
+        report_data = await ai_service.generate_report(instagram_data)
+
+        analysis_jobs[report_id]["progress"] = 100
+        analysis_jobs[report_id]["status"] = AnalysisStatus.COMPLETED
+        analysis_jobs[report_id]["message"] = "분석이 완료되었습니다."
+        analysis_jobs[report_id]["result"] = report_data.model_dump()
+        analysis_jobs[report_id]["completed_at"] = datetime.utcnow().isoformat()
+
+    except Exception as e:
+        analysis_jobs[report_id]["status"] = AnalysisStatus.FAILED
+        analysis_jobs[report_id]["message"] = f"분석 실패: {str(e)}"
+        analysis_jobs[report_id]["error"] = str(e)
+        analysis_jobs[report_id]["completed_at"] = datetime.utcnow().isoformat()
 
 
 @router.post(
@@ -37,10 +76,11 @@ analysis_jobs = {}
         500: {"model": ErrorResponse, "description": "Server error"},
     },
     summary="인스타그램 계정 분석 시작",
-    description="인스타그램 사용자명을 받아 AI 분석을 시작합니다.",
+    description="인스타그램 사용자명을 받아 AI 분석을 시작합니다. Moonshot AI를 사용하여 계정을 분석합니다.",
 )
 async def start_analysis(
     request: AnalyzeRequest,
+    background_tasks: BackgroundTasks,
 ) -> AnalyzeResponse:
     """
     인스타그램 계정 분석을 시작합니다.
@@ -63,23 +103,24 @@ async def start_analysis(
     # 고유한 리포트 ID 생성
     report_id = f"rep_{uuid.uuid4().hex[:12]}"
 
-    # 분석 작업 저장 (실제로는 백그라운드 작업 큐에 추가)
+    # 분석 작업 저장
     analysis_jobs[report_id] = {
         "username": request.username,
         "status": AnalysisStatus.PROCESSING,
         "created_at": datetime.utcnow(),
         "progress": 0,
+        "message": "분석 대기 중...",
     }
 
-    # TODO: 실제 백그라운드 분석 작업 시작
-    # Celery, RQ, 또는 FastAPI BackgroundTasks 사용
+    # 백그라운드 작업 시작
+    background_tasks.add_task(_run_analysis_background, report_id, request.username)
 
     return AnalyzeResponse(
         report_id=report_id,
         status=AnalysisStatus.PROCESSING,
         message="분석이 시작되었습니다. 잠시 후 결과를 확인해주세요.",
         estimated_time_seconds=30,
-        check_url=f"{settings.api_v1_prefix}/report/{report_id}",
+        check_url=f"{settings.api_v1_prefix}/analyze/status/{report_id}",
     )
 
 
@@ -87,6 +128,9 @@ async def start_analysis(
     "/analyze/status/{report_id}",
     summary="분석 상태 조회",
     description="특정 분석 작업의 현재 상태를 조회합니다.",
+    responses={
+        404: {"model": ErrorResponse, "description": "Analysis job not found"},
+    },
 )
 async def get_analysis_status(report_id: str) -> dict:
     """
@@ -96,7 +140,7 @@ async def get_analysis_status(report_id: str) -> dict:
         report_id: 분석 작업 ID
 
     Returns:
-        dict: 분석 상태 정보
+        dict: 분석 상태 정보 (status, progress, message, result 등 포함)
     """
     if report_id not in analysis_jobs:
         raise HTTPException(
@@ -105,13 +149,26 @@ async def get_analysis_status(report_id: str) -> dict:
         )
 
     job = analysis_jobs[report_id]
-    return {
+    response = {
         "report_id": report_id,
         "status": job["status"],
         "username": job["username"],
         "progress": job.get("progress", 0),
+        "message": job.get("message", ""),
         "created_at": job["created_at"].isoformat(),
     }
+
+    # 완료된 경우 결과 포함
+    if job["status"] == AnalysisStatus.COMPLETED and "result" in job:
+        response["result"] = job["result"]
+        response["completed_at"] = job.get("completed_at")
+
+    # 실패한 경우 에러 정보 포함
+    if job["status"] == AnalysisStatus.FAILED:
+        response["error"] = job.get("error", "Unknown error")
+        response["completed_at"] = job.get("completed_at")
+
+    return response
 
 
 @router.post(

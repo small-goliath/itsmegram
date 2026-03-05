@@ -6,7 +6,7 @@ AI 분석 라우터
 import uuid
 import asyncio
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Request, BackgroundTasks
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -25,6 +25,7 @@ from app.models.schemas import (
 from app.config import get_settings
 from app.services.instagram_service import instagram_service
 from app.services.ai_service import ai_service, AIServiceError, MoonshotAPIError, AnalysisTimeoutError
+from app.services.report_service import report_service, ReportCreationError
 
 router = APIRouter()
 
@@ -34,7 +35,7 @@ analysis_jobs: Dict[str, Dict[str, Any]] = {}
 
 async def _run_analysis_background(report_id: str, username: str):
     """
-    백그라운드에서 AI 분석 수행
+    백그라운드에서 AI 분석 수행 (기존 방식 - report_service로 마이그레이션 예정)
     """
     try:
         analysis_jobs[report_id]["progress"] = 10
@@ -76,7 +77,7 @@ async def _run_analysis_background(report_id: str, username: str):
         500: {"model": ErrorResponse, "description": "Server error"},
     },
     summary="인스타그램 계정 분석 시작",
-    description="인스타그램 사용자명을 받아 AI 분석을 시작합니다. Moonshot AI를 사용하여 계정을 분석합니다.",
+    description="인스타그램 사용자명을 받아 AI 분석을 시작합니다. 새로운 리포트 저장소 시스템을 사용합니다.",
 )
 async def start_analysis(
     request: AnalyzeRequest,
@@ -100,34 +101,38 @@ async def start_analysis(
     """
     settings = get_settings()
 
-    # 고유한 리포트 ID 생성
-    report_id = f"rep_{uuid.uuid4().hex[:12]}"
+    # 새로운 리포트 서비스를 사용하여 리포트 생성
+    try:
+        report_id = await report_service.create_report_async(
+            username=request.username,
+            background_tasks=background_tasks
+        )
 
-    # 분석 작업 저장
-    analysis_jobs[report_id] = {
-        "username": request.username,
-        "status": AnalysisStatus.PROCESSING,
-        "created_at": datetime.utcnow(),
-        "progress": 0,
-        "message": "분석 대기 중...",
-    }
+        return AnalyzeResponse(
+            report_id=report_id,
+            status=AnalysisStatus.PROCESSING,
+            message="분석이 시작되었습니다. 잠시 후 결과를 확인해주세요.",
+            estimated_time_seconds=30,
+            check_url=f"{settings.api_v1_prefix}/report/{report_id}",
+        )
 
-    # 백그라운드 작업 시작
-    background_tasks.add_task(_run_analysis_background, report_id, request.username)
+    except ReportCreationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start analysis: {e.message}",
+        )
 
-    return AnalyzeResponse(
-        report_id=report_id,
-        status=AnalysisStatus.PROCESSING,
-        message="분석이 시작되었습니다. 잠시 후 결과를 확인해주세요.",
-        estimated_time_seconds=30,
-        check_url=f"{settings.api_v1_prefix}/analyze/status/{report_id}",
-    )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}",
+        )
 
 
 @router.get(
     "/analyze/status/{report_id}",
     summary="분석 상태 조회",
-    description="특정 분석 작업의 현재 상태를 조회합니다.",
+    description="특정 분석 작업의 현재 상태를 조회합니다. (레거시 - /report/{report_id}/status 사용 권장)",
     responses={
         404: {"model": ErrorResponse, "description": "Analysis job not found"},
     },
@@ -135,40 +140,59 @@ async def start_analysis(
 async def get_analysis_status(report_id: str) -> dict:
     """
     분석 작업의 상태를 조회합니다.
+    새로운 리포트 서비스를 통해 상태를 조회합니다.
 
     Args:
         report_id: 분석 작업 ID
 
     Returns:
-        dict: 분석 상태 정보 (status, progress, message, result 등 포함)
+        dict: 분석 상태 정보
     """
-    if report_id not in analysis_jobs:
+    try:
+        # 새로운 리포트 서비스를 통해 상태 조회
+        status_info = await report_service.get_report_status(report_id)
+
+        # 레거시 형식으로 변환
+        return {
+            "report_id": status_info["report_id"],
+            "status": status_info["status"],
+            "username": status_info.get("username", ""),
+            "progress": _get_progress_from_status(status_info["status"]),
+            "message": _get_message_from_status(status_info["status"], status_info.get("error_message")),
+            "created_at": status_info.get("created_at", ""),
+            "expires_at": status_info.get("expires_at", ""),
+            "is_expired": status_info.get("is_expired", False),
+        }
+
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Analysis job '{report_id}' not found",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get analysis status: {str(e)}",
         )
 
-    job = analysis_jobs[report_id]
-    response = {
-        "report_id": report_id,
-        "status": job["status"],
-        "username": job["username"],
-        "progress": job.get("progress", 0),
-        "message": job.get("message", ""),
-        "created_at": job["created_at"].isoformat(),
+
+def _get_progress_from_status(status: str) -> int:
+    """상태에 따른 진행률 반환"""
+    progress_map = {
+        "processing": 50,
+        "completed": 100,
+        "failed": 0,
+        "not_found": 0,
+        "expired": 0,
     }
+    return progress_map.get(status, 0)
 
-    # 완료된 경우 결과 포함
-    if job["status"] == AnalysisStatus.COMPLETED and "result" in job:
-        response["result"] = job["result"]
-        response["completed_at"] = job.get("completed_at")
 
-    # 실패한 경우 에러 정보 포함
-    if job["status"] == AnalysisStatus.FAILED:
-        response["error"] = job.get("error", "Unknown error")
-        response["completed_at"] = job.get("completed_at")
-
-    return response
+def _get_message_from_status(status: str, error_message: Optional[str] = None) -> str:
+    """상태에 따른 메시지 반환"""
+    message_map = {
+        "processing": "분석 진행 중...",
+        "completed": "분석이 완료되었습니다.",
+        "failed": error_message or "분석에 실패했습니다.",
+        "not_found": "리포트를 찾을 수 없습니다.",
+        "expired": "리포트가 만료되었습니다.",
+    }
+    return message_map.get(status, "상태를 확인할 수 없습니다.")
 
 
 @router.post(
@@ -189,7 +213,7 @@ async def mock_analysis(username: str) -> ReportData:
     profile = InstagramProfile(
         username=username.lower(),
         full_name=f"{username.title()} User",
-        biography=f"Welcome to {username}'s profile! 🌟",
+        biography=f"Welcome to {username}'s profile!",
         followers_count=15000,
         following_count=500,
         posts_count=250,

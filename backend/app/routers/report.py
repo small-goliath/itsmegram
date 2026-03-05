@@ -4,7 +4,9 @@
 """
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 
 from app.models.schemas import (
     ReportResponse,
@@ -15,12 +17,17 @@ from app.models.schemas import (
     AIInsight,
     ErrorResponse,
 )
+from app.models.report import Report
 from app.config import get_settings
+from app.services.report_service import (
+    report_service,
+    ReportServiceError,
+    ReportNotFoundError,
+    ReportExpiredError,
+)
+from app.services.storage_service import ReportExpiredError as StorageExpiredError
 
 router = APIRouter()
-
-# In-memory report storage (production에서는 Redis/DB 사용)
-reports_db = {}
 
 
 @router.get(
@@ -28,10 +35,11 @@ reports_db = {}
     response_model=ReportResponse,
     responses={
         404: {"model": ErrorResponse, "description": "Report not found"},
+        410: {"model": ErrorResponse, "description": "Report has expired"},
         500: {"model": ErrorResponse, "description": "Server error"},
     },
     summary="분석 리포트 조회",
-    description="특정 리포트 ID로 완성된 분석 리포트를 조회합니다.",
+    description="특정 리포트 ID로 완성된 분석 리포트를 조회합니다. 리포트는 생성 후 24시간 동안 유효합니다.",
 )
 async def get_report(report_id: str) -> ReportResponse:
     """
@@ -44,79 +52,174 @@ async def get_report(report_id: str) -> ReportResponse:
         ReportResponse: 완성된 리포트 데이터
 
     Raises:
-        HTTPException: 리포트를 찾을 수 없는 경우
+        HTTPException: 리포트를 찾을 수 없거나 만료된 경우
     """
     settings = get_settings()
 
-    # TODO: 실제 DB에서 리포트 조회
-    # 현재는 mock 데이터 또는 analysis 라우터의 작업 상태 확인
-    from app.routers.analysis import analysis_jobs
+    try:
+        # 저장소에서 리포트 조회
+        report = await report_service.get_report(report_id)
 
-    if report_id not in analysis_jobs:
+        if not report:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report '{report_id}' not found",
+            )
+
+        # 처리 중인 경우
+        if report.status == "processing":
+            return ReportResponse(
+                report_id=report.id,
+                username=report.username,
+                status=AnalysisStatus.PROCESSING,
+                report_data=ReportData(
+                    profile=InstagramProfile(username=report.username),
+                    metrics=AnalysisMetrics(),
+                    generated_at=report.created_at,
+                ),
+                created_at=report.created_at,
+                expires_at=report.expires_at,
+            )
+
+        # 실패한 경우
+        if report.status == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=report.error_message or "Report generation failed",
+            )
+
+        # 완료된 리포트 데이터 변환
+        profile = InstagramProfile(
+            username=report.username,
+            full_name=report.basic_metrics.get("full_name", ""),
+            biography=report.basic_metrics.get("biography", ""),
+            followers_count=report.basic_metrics.get("followers", 0),
+            following_count=report.basic_metrics.get("following", 0),
+            posts_count=report.collected_posts_count,
+            profile_pic_url=report.profile_image_url,
+            is_private=False,
+            is_verified=report.basic_metrics.get("is_verified", False),
+        )
+
+        metrics = AnalysisMetrics(
+            engagement_rate=report.basic_metrics.get("engagement_rate", 0),
+            avg_likes=report.basic_metrics.get("avg_likes", 0),
+            avg_comments=report.basic_metrics.get("avg_comments", 0),
+            posting_frequency=report.content_tendency.get("posting_frequency"),
+            top_hashtags=report.content_tendency.get("hashtag_pattern", []),
+            content_themes=report.content_tendency.get("categories", []),
+        )
+
+        # AI 인사이트 변환
+        insights = []
+
+        if report.content_tendency:
+            insights.append(AIInsight(
+                category="content",
+                title="콘텐츠 성향",
+                description=f"시각적 스타일: {report.content_tendency.get('visual_style', '분석 불가')}. 텍스트 스타일: {report.content_tendency.get('text_style', '분석 불가')}",
+                score=7,
+                recommendations=["일관된 브랜드 아이덴티티 유지"],
+            ))
+
+        if report.lifestyle:
+            insights.append(AIInsight(
+                category="lifestyle",
+                title="라이프스타일 분석",
+                description=f"관심사: {', '.join(report.lifestyle.get('interests', []))}. 활동 패턴: {report.lifestyle.get('activity_pattern', '분석 불가')}",
+                score=6,
+                recommendations=["관심사 기반 콘텐츠 강화"],
+            ))
+
+        if report.personality:
+            insights.append(AIInsight(
+                category="personality",
+                title="성격 특성",
+                description=f"외향성: {report.personality.get('extroversion', '분석 불가')}. 표현력 점수: {report.personality.get('expression_strength', 0):.0f}/100",
+                score=int(report.personality.get("expression_strength", 50) / 10),
+                recommendations=["개인적인 브랜딩 강화"],
+            ))
+
+        if report.network:
+            insights.append(AIInsight(
+                category="network",
+                title="네트워크 분석",
+                description=f"참여 품질: {report.network.get('engagement_quality', '분석 불가')}. 커뮤니티 유형: {report.network.get('community_type', '분석 불가')}",
+                score=6,
+                recommendations=["커뮤니티 참여 강화"],
+            ))
+
+        if report.growth_potential:
+            insights.append(AIInsight(
+                category="growth",
+                title="성장 잠재력",
+                description=f"성장 추세: {report.growth_potential.get('trend', '분석 불가')}. 일관성: {report.growth_potential.get('consistency', '분석 불가')}",
+                score=7,
+                recommendations=report.growth_potential.get("suggestions", ["꾸준한 콘텐츠 게시"]),
+            ))
+
+        report_data = ReportData(
+            profile=profile,
+            metrics=metrics,
+            recent_posts=[],
+            ai_insights=insights,
+            overall_score=int(report.basic_metrics.get("engagement_rate", 50)),
+            generated_at=report.created_at,
+        )
+
+        return ReportResponse(
+            report_id=report.id,
+            username=report.username,
+            status=AnalysisStatus.COMPLETED,
+            report_data=report_data,
+            image_url=None,  # TODO: 리포트 이미지 생성 후 URL 설정
+            created_at=report.created_at,
+            expires_at=report.expires_at,
+        )
+
+    except ReportExpiredError:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Report '{report_id}' has expired. Please create a new analysis.",
+        )
+
+    except ReportNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Report '{report_id}' not found",
         )
 
-    job = analysis_jobs[report_id]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve report: {str(e)}",
+        )
 
-    # Mock 완료된 리포트 데이터 생성
-    profile = InstagramProfile(
-        username=job["username"],
-        full_name=f"{job['username'].title()} User",
-        biography=f"Welcome to {job['username']}'s profile!",
-        followers_count=15000,
-        following_count=500,
-        posts_count=250,
-        is_private=False,
-        is_verified=False,
-    )
 
-    metrics = AnalysisMetrics(
-        engagement_rate=3.5,
-        avg_likes=525,
-        avg_comments=42,
-        posting_frequency="weekly",
-        best_posting_time="18:00 - 20:00",
-        top_hashtags=["#lifestyle", "#travel", "#photography"],
-        content_themes=["여행", "일상", "사진"],
-    )
+@router.get(
+    "/report/{report_id}/status",
+    summary="리포트 상태 조회",
+    description="리포트의 현재 처리 상태를 조회합니다.",
+)
+async def get_report_status(report_id: str) -> dict:
+    """
+    리포트 상태를 조회합니다.
 
-    insights = [
-        AIInsight(
-            category="engagement",
-            title="참여도 분석",
-            description="팔로워 대비 참여도가 평균 이상입니다.",
-            score=7,
-            recommendations=["스토리 활용 증가", "인터랙티브 기능 사용"],
-        ),
-        AIInsight(
-            category="content",
-            title="콘텐츠 전략",
-            description="일관된 톤앤매너로 브랜드 아이덴티티가 뚜렷합니다.",
-            score=8,
-            recommendations=["릴스 콘텐츠 추가", "게시 시간 최적화"],
-        ),
-    ]
+    Args:
+        report_id: 리포트 ID
 
-    report_data = ReportData(
-        profile=profile,
-        metrics=metrics,
-        recent_posts=[],
-        ai_insights=insights,
-        overall_score=72,
-        generated_at=datetime.utcnow(),
-    )
+    Returns:
+        dict: 리포트 상태 정보
+    """
+    try:
+        status_info = await report_service.get_report_status(report_id)
+        return status_info
 
-    return ReportResponse(
-        report_id=report_id,
-        username=job["username"],
-        status=AnalysisStatus.COMPLETED,
-        report_data=report_data,
-        image_url=None,  # TODO: 리포트 이미지 생성 후 URL 설정
-        created_at=job["created_at"],
-        expires_at=job["created_at"] + timedelta(hours=settings.report_ttl_hours),
-    )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get report status: {str(e)}",
+        )
 
 
 @router.get(
@@ -146,6 +249,9 @@ async def get_report_image(report_id: str) -> dict:
 @router.delete(
     "/report/{report_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        404: {"model": ErrorResponse, "description": "Report not found"},
+    },
     summary="리포트 삭제",
     description="특정 리포트를 삭제합니다.",
 )
@@ -155,16 +261,26 @@ async def delete_report(report_id: str):
 
     Args:
         report_id: 삭제할 리포트 ID
+
+    Raises:
+        HTTPException: 리포트를 찾을 수 없는 경우
     """
-    from app.routers.analysis import analysis_jobs
+    try:
+        result = await report_service.delete_report(report_id)
 
-    if report_id in analysis_jobs:
-        del analysis_jobs[report_id]
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report '{report_id}' not found",
+            )
 
-    if report_id in reports_db:
-        del reports_db[report_id]
+        return None
 
-    return None
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete report: {str(e)}",
+        )
 
 
 @router.get(
@@ -179,17 +295,10 @@ async def list_reports() -> dict:
     Returns:
         dict: 리포트 목록
     """
-    from app.routers.analysis import analysis_jobs
-
+    # TODO: 실제 저장소에서 모든 리포트 조회 구현
+    # 현재는 빈 목록 반환
     return {
-        "reports": [
-            {
-                "report_id": rid,
-                "username": job["username"],
-                "status": job["status"],
-                "created_at": job["created_at"].isoformat(),
-            }
-            for rid, job in analysis_jobs.items()
-        ],
-        "total_count": len(analysis_jobs),
+        "reports": [],
+        "total_count": 0,
+        "message": "Report listing not fully implemented yet",
     }

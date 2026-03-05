@@ -16,6 +16,10 @@ from app.models.schemas import (
     HealthResponse,
     ErrorResponse,
 )
+from app.models.report import (
+    Report,
+    ReportSection,
+)
 
 __all__ = [
     "AnalysisStatus",
@@ -29,4 +33,6 @@ __all__ = [
     "ReportResponse",
     "HealthResponse",
     "ErrorResponse",
+    "Report",
+    "ReportSection",
 ]

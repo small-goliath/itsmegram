@@ -22,6 +22,13 @@ from app.services.report_service import (
     ReportServiceError,
     ReportCreationError,
 )
+from app.services.image_service import (
+    ReportImageService,
+    report_image_service,
+    ImageServiceError,
+    ImageGenerationError,
+    TemplateRenderError,
+)
 
 __all__ = [
     # AI Service
@@ -46,4 +53,10 @@ __all__ = [
     "report_service",
     "ReportServiceError",
     "ReportCreationError",
+    # Image Service
+    "ReportImageService",
+    "report_image_service",
+    "ImageServiceError",
+    "ImageGenerationError",
+    "TemplateRenderError",
 ]

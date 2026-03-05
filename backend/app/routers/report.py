@@ -6,7 +6,10 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+import structlog
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+
+logger = structlog.get_logger()
 
 from app.models.schemas import (
     ReportResponse,
@@ -225,25 +228,93 @@ async def get_report_status(report_id: str) -> dict:
 @router.get(
     "/report/{report_id}/image",
     summary="리포트 이미지 조회",
-    description="생성된 리포트 이미지 URL을 조회합니다.",
+    description="리포트 이미지를 생성하여 PNG 형식으로 반환합니다. 생성된 이미지는 1시간 동안 캐싱됩니다.",
+    responses={
+        200: {"description": "PNG 이미지 바이트", "content": {"image/png": {}}},
+        404: {"model": ErrorResponse, "description": "리포트를 찾을 수 없음"},
+        410: {"model": ErrorResponse, "description": "리포트가 만료됨"},
+        500: {"model": ErrorResponse, "description": "이미지 생성 실패"},
+    },
 )
-async def get_report_image(report_id: str) -> dict:
+async def get_report_image(report_id: str):
     """
-    리포트 이미지 URL을 조회합니다.
+    리포트 이미지를 생성하여 반환합니다.
 
     Args:
         report_id: 리포트 ID
 
     Returns:
-        dict: 이미지 URL 정보
+        StreamingResponse: PNG 이미지
+
+    Raises:
+        HTTPException: 리포트를 찾을 수 없거나 이미지 생성 실패 시
     """
-    # TODO: 실제 이미지 생성 및 URL 반환
-    return {
-        "report_id": report_id,
-        "image_url": None,
-        "status": "not_generated",
-        "message": "Image generation not implemented yet",
-    }
+    import io
+    from fastapi.responses import StreamingResponse
+
+    from app.services.image_service import (
+        report_image_service,
+        ImageGenerationError,
+        TemplateRenderError,
+    )
+
+    try:
+        # 저장소에서 리포트 조회
+        report = await report_service.get_report(report_id)
+
+        if not report:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report '{report_id}' not found",
+            )
+
+        # 처리 중인 경우
+        if report.status == "processing":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Report is still being processed. Please try again later.",
+            )
+
+        # 실패한 경우
+        if report.status == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=report.error_message or "Report generation failed",
+            )
+
+        # 이미지 생성
+        image_bytes = await report_image_service.generate_report_image(report)
+
+        # 스트리밍 응답 반환
+        return StreamingResponse(
+            io.BytesIO(image_bytes),
+            media_type="image/png",
+            headers={
+                "Content-Disposition": f'inline; filename="report_{report.username}_{report_id}.png"',
+                "Cache-Control": "public, max-age=3600",
+            }
+        )
+
+    except HTTPException:
+        raise
+    except TemplateRenderError as e:
+        logger.error("template_render_error", report_id=report_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to render report template: {str(e)}",
+        )
+    except ImageGenerationError as e:
+        logger.error("image_generation_error", report_id=report_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate report image: {str(e)}",
+        )
+    except Exception as e:
+        logger.error("unexpected_error", report_id=report_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {str(e)}",
+        )
 
 
 @router.delete(

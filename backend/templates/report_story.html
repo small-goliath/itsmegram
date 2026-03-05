@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1080, initial-scale=1.0">
+    <title>{{ username }}님의 인스타그램 분석 리포트</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #f5576c 75%, #4facfe 100%);
+            min-height: 1920px;
+            width: 1080px;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .story-container {
+            width: 1080px;
+            min-height: 1920px;
+            padding: 60px 50px;
+            position: relative;
+        }
+
+        /* 헤더 섹션 */
+        .header-section {
+            text-align: center;
+            margin-bottom: 50px;
+            padding-top: 20px;
+        }
+
+        .logo-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .profile-section {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            border-radius: 40px;
+            padding: 40px;
+            margin-bottom: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            text-align: center;
+        }
+
+        .profile-image {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            border: 5px solid rgba(255, 255, 255, 0.5);
+            margin-bottom: 25px;
+            object-fit: cover;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+        }
+
+        .profile-username {
+            font-size: 48px;
+            font-weight: 900;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .profile-handle {
+            font-size: 28px;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+
+        /* 섹션 공통 스타일 */
+        .section {
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(15px);
+            border-radius: 30px;
+            padding: 35px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .section-title {
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .section-icon {
+            font-size: 36px;
+        }
+
+        /* 메트릭스 섹션 */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 42px;
+            font-weight: 900;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #fff, #ffeaa7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .metric-label {
+            font-size: 20px;
+            opacity: 0.85;
+            font-weight: 500;
+        }
+
+        /* 콘텐츠 성향 섹션 */
+        .content-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .content-tag {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .content-description {
+            font-size: 22px;
+            line-height: 1.7;
+            opacity: 0.95;
+        }
+
+        /* 라이프스타일 섹션 */
+        .lifestyle-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .lifestyle-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 25px;
+        }
+
+        .lifestyle-item-title {
+            font-size: 18px;
+            opacity: 0.8;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .lifestyle-item-content {
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        /* 성격 분석 섹션 */
+        .personality-bar {
+            margin-bottom: 20px;
+        }
+
+        .personality-bar-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .personality-bar-track {
+            height: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .personality-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ffeaa7, #fdcb6e);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .personality-description {
+            font-size: 22px;
+            line-height: 1.7;
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+        }
+
+        /* 요약 섹션 */
+        .summary-section {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1));
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .summary-text {
+            font-size: 24px;
+            line-height: 1.8;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        /* 푸터 */
+        .footer {
+            text-align: center;
+            padding: 40px 0;
+            margin-top: 20px;
+        }
+
+        .footer-logo {
+            font-size: 36px;
+            font-weight: 900;
+            margin-bottom: 15px;
+            letter-spacing: 3px;
+        }
+
+        .footer-text {
+            font-size: 20px;
+            opacity: 0.8;
+        }
+
+        .footer-url {
+            font-size: 22px;
+            opacity: 0.9;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+
+        /* 해시태그 스타일 */
+        .hashtag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .hashtag {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 18px;
+        }
+
+        /* 점수 표시 */
+        .score-display {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            margin: 20px 0;
+        }
+
+        .score-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ffeaa7, #fdcb6e);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+
+        .score-value {
+            font-size: 42px;
+            font-weight: 900;
+        }
+
+        .score-label {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        /* 반응형 (스토리 형식 고정) */
+        @media print {
+            body {
+                width: 1080px;
+                height: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="story-container">
+        <!-- 헤더 및 프로필 섹션 -->
+        <div class="header-section">
+            <div class="logo-badge">ITSMEGRAM</div>
+        </div>
+
+        <div class="profile-section">
+            {% if profile_image_url %}
+            <img src="{{ profile_image_url }}" alt="{{ username }}" class="profile-image">
+            {% else %}
+            <div class="profile-image" style="display: flex; align-items: center; justify-content: center; font-size: 72px; font-weight: 900;">
+                {{ username[0] | upper }}
+            </div>
+            {% endif %}
+            <div class="profile-username">{{ username }}</div>
+            <div class="profile-handle">@{{ username }}</div>
+        </div>
+
+        <!-- 핵심 지표 섹션 -->
+        <div class="section">
+            <div class="section-title">
+                <span class="section-icon">📊</span>
+                <span>핵심 지표</span>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">{{ engagement_rate | default(0) | round(1) }}%</div>
+                    <div class="metric-label">참여율</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{{ avg_likes | default(0) | int }}</div>
+                    <div class="metric-label">평균 좋아요</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{{ avg_comments | default(0) | int }}</div>
+                    <div class="metric-label">평균 댓글</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">{{ posts_count | default(0) }}</div>
+                    <div class="metric-label">분석 게시물</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 콘텐츠 성향 섹션 -->
+        <div class="section">
+            <div class="section-title">
+                <span class="section-icon">🎨</span>
+                <span>콘텐츠 성향</span>
+            </div>
+            {% if categories %}
+            <div class="content-tags">
+                {% for category in categories %}
+                <span class="content-tag">{{ category }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if visual_style %}
+            <div class="content-description">
+                <strong>시각적 스타일:</strong> {{ visual_style }}
+            </div>
+            {% endif %}
+            {% if text_style %}
+            <div class="content-description" style="margin-top: 15px;">
+                <strong>글 스타일:</strong> {{ text_style }}
+            </div>
+            {% endif %}
+            {% if hashtag_pattern %}
+            <div class="hashtag-list">
+                {% for tag in hashtag_pattern %}
+                <span class="hashtag">#{{ tag }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 라이프스타일 섹션 -->
+        <div class="section">
+            <div class="section-title">
+                <span class="section-icon">🌟</span>
+                <span>라이프스타일</span>
+            </div>
+            <div class="lifestyle-grid">
+                {% if interests %}
+                <div class="lifestyle-item">
+                    <div class="lifestyle-item-title">관심사</div>
+                    <div class="lifestyle-item-content">{{ interests | join(', ') }}</div>
+                </div>
+                {% endif %}
+                {% if activity_pattern %}
+                <div class="lifestyle-item">
+                    <div class="lifestyle-item-title">활동 패턴</div>
+                    <div class="lifestyle-item-content">{{ activity_pattern }}</div>
+                </div>
+                {% endif %}
+                {% if consumption %}
+                <div class="lifestyle-item">
+                    <div class="lifestyle-item-title">소비 성향</div>
+                    <div class="lifestyle-item-content">{{ consumption | join(', ') }}</div>
+                </div>
+                {% endif %}
+                {% if posting_frequency %}
+                <div class="lifestyle-item">
+                    <div class="lifestyle-item-title">게시 빈도</div>
+                    <div class="lifestyle-item-content">{{ posting_frequency }}</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 성격 분석 섹션 -->
+        <div class="section">
+            <div class="section-title">
+                <span class="section-icon">🧠</span>
+                <span>성격 분석</span>
+            </div>
+            {% if expression_strength is not none %}
+            <div class="personality-bar">
+                <div class="personality-bar-label">
+                    <span>표현력</span>
+                    <span>{{ expression_strength | int }}/100</span>
+                </div>
+                <div class="personality-bar-track">
+                    <div class="personality-bar-fill" style="width: {{ expression_strength }}%"></div>
+                </div>
+            </div>
+            {% endif %}
+            {% if extroversion %}
+            <div class="personality-description">
+                <strong>성향:</strong> {{ extroversion }}
+            </div>
+            {% endif %}
+            {% if communication %}
+            <div class="personality-description" style="margin-top: 15px;">
+                <strong>커뮤니케이션:</strong> {{ communication }}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 종합 요약 섹션 -->
+        <div class="section summary-section">
+            <div class="section-title">
+                <span class="section-icon">✨</span>
+                <span>종합 분석</span>
+            </div>
+            <div class="summary-text">
+                {{ summary | default('분석 결과가 준비되지 않았습니다.') }}
+            </div>
+        </div>
+
+        <!-- 푸터 -->
+        <div class="footer">
+            <div class="footer-logo">ITSMEGRAM</div>
+            <div class="footer-text">AI 기반 인스타그램 계정 분석</div>
+            <div class="footer-url">itsmegram.app</div>
+        </div>
+    </div>
+</body>
+</html>

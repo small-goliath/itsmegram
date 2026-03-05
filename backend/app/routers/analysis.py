@@ -26,8 +26,10 @@ from app.config import get_settings
 from app.services.instagram_service import instagram_service
 from app.services.ai_service import ai_service, AIServiceError, MoonshotAPIError, AnalysisTimeoutError
 from app.services.report_service import report_service, ReportCreationError
+from app.utils.logger import get_logger
 
 router = APIRouter()
+logger = get_logger("analysis_router")
 
 # Rate Limiter 인스턴스 (main.py에서 주입됨)
 limiter = Limiter(key_func=get_remote_address)
@@ -107,11 +109,15 @@ async def start_analysis(
     settings = get_settings()
 
     # 새로운 리포트 서비스를 사용하여 리포트 생성
+    logger.info("analysis_request_received", username=data.username, client_ip=request.client.host if request.client else None)
+
     try:
         report_id = await report_service.create_report_async(
             username=data.username,
             background_tasks=background_tasks
         )
+
+        logger.info("analysis_started", report_id=report_id, username=data.username)
 
         return AnalyzeResponse(
             report_id=report_id,
@@ -122,12 +128,14 @@ async def start_analysis(
         )
 
     except ReportCreationError as e:
+        logger.error("report_creation_failed", username=data.username, error=e.message)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start analysis: {e.message}",
         )
 
     except Exception as e:
+        logger.error("unexpected_analysis_error", username=data.username, error=str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error: {str(e)}",

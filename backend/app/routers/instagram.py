@@ -23,9 +23,9 @@ from app.services.instagram_service import (
     RateLimitError,
     InstagramServiceError,
 )
-import structlog
+from app.utils.logger import get_logger
 
-logger = structlog.get_logger()
+logger = get_logger("instagram_router")
 router = APIRouter()
 
 # Rate Limiter 인스턴스

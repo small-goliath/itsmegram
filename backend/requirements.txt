@@ -25,6 +25,7 @@ redis==5.2.0
 
 # 구조화된 로깅
 structlog==24.4.0
+python-json-logger==2.0.7
 
 # 유틸리티
 python-dateutil==2.9.0

@@ -6,10 +6,10 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-import structlog
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Body
+from app.utils.logger import get_logger
 
-logger = structlog.get_logger()
+logger = get_logger("report_router")
 
 from app.models.schemas import (
     ReportResponse,

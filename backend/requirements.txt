@@ -1,0 +1,30 @@
+# itsmegram Backend Dependencies
+# Python FastAPI + 관련 패키지
+
+# FastAPI 및 서버
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.17
+
+# 환경 변수 관리
+python-dotenv==1.0.1
+pydantic-settings==2.6.1
+
+# HTTP 클라이언트 (외부 API 호출용)
+httpx==0.27.2
+aiohttp==3.11.2
+
+# 데이터 검증 및 직렬화
+pydantic==2.9.2
+
+# Rate Limiting
+slowapi==0.1.9
+
+# 캐싱 (Redis)
+redis==5.2.0
+
+# 구조화된 로깅
+structlog==24.4.0
+
+# 유틸리티
+python-dateutil==2.9.0

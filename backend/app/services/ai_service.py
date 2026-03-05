@@ -20,6 +20,7 @@ from app.models.schemas import (
     ProfileData,
     ReportData,
 )
+from app.services.cache_service import cache_service
 
 logger = structlog.get_logger()
 
@@ -490,18 +491,110 @@ class AIService:
 
         return int(sum(scores) / len(scores))
 
-    async def generate_report(self, instagram_data: InstagramData) -> ReportData:
+    def _build_report_from_cache(
+        self,
+        instagram_data: InstagramData,
+        cached_analysis: Dict[str, Any]
+    ) -> ReportData:
+        """
+        캐시된 분석 결과로 ReportData 생성
+
+        Args:
+            instagram_data: 인스타그램 데이터
+            cached_analysis: 캐시된 분석 결과
+
+        Returns:
+            ReportData: 완성된 리포트
+        """
+        posts = instagram_data.posts
+        profile = instagram_data.profile
+
+        total_likes = sum(p.likes for p in posts)
+        total_comments = sum(p.comments for p in posts)
+        avg_likes = total_likes / len(posts) if posts else 0
+        avg_comments = total_comments / len(posts) if posts else 0
+
+        # 모든 해시태그 수집
+        all_hashtags = []
+        for post in posts:
+            all_hashtags.extend(post.hashtags)
+        hashtag_counts = {}
+        for tag in all_hashtags:
+            hashtag_counts[tag] = hashtag_counts.get(tag, 0) + 1
+        top_hashtags = [tag for tag, _ in sorted(hashtag_counts.items(), key=lambda x: x[1], reverse=True)[:10]]
+
+        # 게시 빈도 분석
+        posting_frequency = "weekly"
+        if len(posts) >= 2 and posts[0].timestamp and posts[-1].timestamp:
+            date_range = (posts[0].timestamp - posts[-1].timestamp).days
+            if date_range > 0:
+                posts_per_day = len(posts) / date_range
+                if posts_per_day >= 1:
+                    posting_frequency = "daily"
+                elif posts_per_day >= 0.3:
+                    posting_frequency = "weekly"
+                else:
+                    posting_frequency = "monthly"
+
+        metrics = AnalysisMetrics(
+            engagement_rate=cached_analysis.get("basic_metrics", {}).get("engagement_rate", 0),
+            avg_likes=avg_likes,
+            avg_comments=avg_comments,
+            posting_frequency=posting_frequency,
+            top_hashtags=top_hashtags,
+            content_themes=cached_analysis.get("content_tendency", {}).get("categories", []),
+        )
+
+        # AI 인사이트 변환
+        ai_insights = self._convert_to_ai_insights(cached_analysis)
+
+        # 종합 점수
+        overall_score = self._calculate_overall_score(cached_analysis)
+
+        return ReportData(
+            profile=profile,
+            metrics=metrics,
+            recent_posts=posts,
+            ai_insights=ai_insights,
+            overall_score=overall_score,
+            generated_at=datetime.utcnow(),
+        )
+
+    async def generate_report(
+        self,
+        instagram_data: InstagramData,
+        use_cache: bool = True
+    ) -> ReportData:
         """
         인스타그램 데이터로부터 완전한 리포트 생성
 
         Args:
             instagram_data: 인스타그램 데이터
+            use_cache: 캐시 사용 여부 (기본 True)
 
         Returns:
             ReportData: 완성된 리포트
         """
+        username = instagram_data.profile.username
+
+        # 캐시 확인
+        if use_cache:
+            cached_analysis = await cache_service.get_cached_analysis(username)
+            if cached_analysis:
+                logger.info("analysis_cache_hit", username=username)
+                # 캐시된 데이터로 ReportData 생성
+                return self._build_report_from_cache(
+                    instagram_data,
+                    cached_analysis
+                )
+
         # AI 분석 수행
         analysis = await self.analyze_profile(instagram_data)
+
+        # 분석 결과 캐싱 (1시간)
+        if use_cache:
+            await cache_service.cache_analysis(username, analysis, ttl=3600)
+            logger.info("analysis_cached", username=username, ttl=3600)
 
         # 기본 메트릭스 계산
         posts = instagram_data.posts

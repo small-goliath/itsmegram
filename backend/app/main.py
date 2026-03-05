@@ -6,6 +6,7 @@ FastAPI 애플리케이션 진입점
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from slowapi import Limiter
@@ -108,6 +109,10 @@ if not settings.debug:
             allowed_hosts=allowed_hosts
         )
         logger.info("trusted_host_middleware_enabled", allowed_hosts=allowed_hosts)
+
+# GZip 압축 미들웨어 추가 (1KB 이상 응답만 압축)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+logger.info("gzip_middleware_enabled", minimum_size=1000)
 
 
 # API v1 라우터 등록

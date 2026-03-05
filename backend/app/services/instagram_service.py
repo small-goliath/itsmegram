@@ -72,7 +72,6 @@ class InstagramService:
     def __init__(self):
         self._loader: Optional[Instaloader] = None
         self._lock = asyncio.Lock()
-        self._cache_ttl = 3600  # 1시간 캐싱
 
     async def _get_loader(self) -> Instaloader:
         """
@@ -153,11 +152,9 @@ class InstagramService:
             RateLimitError: Rate limit에 걸린 경우
             InstagramServiceError: 기타 에러
         """
-        cache_key = f"instagram:profile:{username.lower()}"
-
-        # 캐시 확인
+        # 캐시 확인 (30분 TTL)
         if use_cache:
-            cached_data = await cache_service.get(cache_key)
+            cached_data = await cache_service.get_cached_profile(username)
             if cached_data:
                 logger.info("profile_cache_hit", username=username)
                 return ProfileData(**cached_data)
@@ -190,12 +187,12 @@ class InstagramService:
                 external_url=profile.external_url,
             )
 
-            # 캐시 저장
+            # 캐시 저장 (30분 TTL)
             if use_cache:
-                await cache_service.set(
-                    cache_key,
+                await cache_service.cache_profile(
+                    username,
                     profile_data.model_dump(),
-                    ttl=self._cache_ttl
+                    ttl=1800  # 30분
                 )
 
             logger.info(
@@ -248,11 +245,10 @@ class InstagramService:
             RateLimitError: Rate limit에 걸린 경우
         """
         limit = min(limit, 50)  # 최대 50개로 제한
-        cache_key = f"instagram:posts:{username.lower()}:{limit}"
 
-        # 캐시 확인
+        # 캐시 확인 (30분 TTL)
         if use_cache:
-            cached_data = await cache_service.get(cache_key)
+            cached_data = await cache_service.get_cached_posts(username, limit)
             if cached_data:
                 logger.info("posts_cache_hit", username=username, limit=limit)
                 return [PostData(**post) for post in cached_data]
@@ -304,12 +300,13 @@ class InstagramService:
                     )
                     continue
 
-            # 캐시 저장
+            # 캐시 저장 (30분 TTL)
             if use_cache and posts_data:
-                await cache_service.set(
-                    cache_key,
+                await cache_service.cache_posts(
+                    username,
+                    limit,
                     [post.model_dump() for post in posts_data],
-                    ttl=self._cache_ttl
+                    ttl=1800  # 30분
                 )
 
             logger.info(
@@ -444,12 +441,9 @@ class InstagramService:
         """
         try:
             if username:
-                # 특정 사용자 캐시 삭제
-                await cache_service.delete(f"instagram:profile:{username.lower()}")
-                # 게시물 캐시는 패턴 매칭이 필요하지만 redis에서 지원
-                # 여기서는 간단하게 구현
-                for limit in [12, 20, 30, 50]:
-                    await cache_service.delete(f"instagram:posts:{username.lower()}:{limit}")
+                # 특정 사용자 캐시 삭제 (새로운 메서드 사용)
+                await cache_service.invalidate_profile(username)
+                await cache_service.invalidate_posts(username)
                 logger.info("cache_cleared_for_user", username=username)
             return True
         except Exception as e:

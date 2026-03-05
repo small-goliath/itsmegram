@@ -335,13 +335,15 @@ async def download_report(
 
         filename = f"itsmegram_{report.username}_report.{ext}"
 
-        # 스트리밍 응답 반환 (attachment로 설정)
+        # 스트리밍 응답 반환 (attachment로 설정, CDN 캐싱 헤더 포함)
         return StreamingResponse(
             io.BytesIO(image_bytes),
             media_type=media_type,
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
-                "Cache-Control": "public, max-age=3600",
+                "Cache-Control": "public, max-age=3600, immutable",
+                "ETag": f'"{report_id}"',
+                "Vary": "Accept-Encoding",
             }
         )
 
@@ -437,13 +439,15 @@ async def get_report_image(report_id: str):
         # 이미지 생성
         image_bytes = await report_image_service.generate_report_image(report)
 
-        # 스트리밍 응답 반환
+        # 스트리밍 응답 반환 (CDN 캐싱 헤더 포함)
         return StreamingResponse(
             io.BytesIO(image_bytes),
             media_type="image/png",
             headers={
                 "Content-Disposition": f'inline; filename="report_{report.username}_{report_id}.png"',
-                "Cache-Control": "public, max-age=3600",
+                "Cache-Control": "public, max-age=3600, immutable",
+                "ETag": f'"{report_id}"',
+                "Vary": "Accept-Encoding",
             }
         )
 

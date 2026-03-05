@@ -222,5 +222,158 @@ class CacheService:
             return 0, window_seconds
 
 
+    # Analysis 캐싱 메서드
+
+    async def get_cached_analysis(self, username: str) -> Optional[dict]:
+        """
+        캐시된 분석 결과 조회
+        같은 username 1시간 내 재요청 시 캐시된 결과 반환
+
+        Args:
+            username: 인스타그램 사용자명
+
+        Returns:
+            캐시된 분석 결과 또는 None
+        """
+        return await self.get(f"analysis:{username.lower()}")
+
+    async def cache_analysis(
+        self,
+        username: str,
+        data: dict,
+        ttl: int = 3600
+    ) -> bool:
+        """
+        분석 결과 캐싱 (기본 1시간)
+
+        Args:
+            username: 인스타그램 사용자명
+            data: 캐싱할 분석 데이터
+            ttl: 만료 시간(초), 기본 3600(1시간)
+
+        Returns:
+            저장 성공 여부
+        """
+        return await self.set(f"analysis:{username.lower()}", data, ttl=ttl)
+
+    async def get_cached_profile(self, username: str) -> Optional[dict]:
+        """
+        캐시된 인스타그램 프로필 조회 (30분 TTL)
+
+        Args:
+            username: 인스타그램 사용자명
+
+        Returns:
+            캐시된 프로필 데이터 또는 None
+        """
+        return await self.get(f"instagram:profile:{username.lower()}")
+
+    async def cache_profile(
+        self,
+        username: str,
+        data: dict,
+        ttl: int = 1800
+    ) -> bool:
+        """
+        인스타그램 프로필 캐싱 (기본 30분)
+
+        Args:
+            username: 인스타그램 사용자명
+            data: 캐싱할 프로필 데이터
+            ttl: 만료 시간(초), 기본 1800(30분)
+
+        Returns:
+            저장 성공 여부
+        """
+        return await self.set(f"instagram:profile:{username.lower()}", data, ttl=ttl)
+
+    async def get_cached_posts(
+        self,
+        username: str,
+        limit: int
+    ) -> Optional[list]:
+        """
+        캐시된 인스타그램 게시물 조회 (30분 TTL)
+
+        Args:
+            username: 인스타그램 사용자명
+            limit: 조회한 게시물 수
+
+        Returns:
+            캐시된 게시물 목록 또는 None
+        """
+        return await self.get(f"instagram:posts:{username.lower()}:{limit}")
+
+    async def cache_posts(
+        self,
+        username: str,
+        limit: int,
+        data: list,
+        ttl: int = 1800
+    ) -> bool:
+        """
+        인스타그램 게시물 캐싱 (기본 30분)
+
+        Args:
+            username: 인스타그램 사용자명
+            limit: 조회한 게시물 수
+            data: 캐싱할 게시물 목록
+            ttl: 만료 시간(초), 기본 1800(30분)
+
+        Returns:
+            저장 성공 여부
+        """
+        return await self.set(
+            f"instagram:posts:{username.lower()}:{limit}",
+            data,
+            ttl=ttl
+        )
+
+    async def invalidate_analysis(self, username: str) -> bool:
+        """
+        특정 사용자의 분석 결과 캐시 무효화
+
+        Args:
+            username: 인스타그램 사용자명
+
+        Returns:
+            삭제 성공 여부
+        """
+        return await self.delete(f"analysis:{username.lower()}")
+
+    async def invalidate_profile(self, username: str) -> bool:
+        """
+        특정 사용자의 프로필 캐시 무효화
+
+        Args:
+            username: 인스타그램 사용자명
+
+        Returns:
+            삭제 성공 여부
+        """
+        return await self.delete(f"instagram:profile:{username.lower()}")
+
+    async def invalidate_posts(self, username: str, limit: Optional[int] = None) -> bool:
+        """
+        특정 사용자의 게시물 캐시 무효화
+
+        Args:
+            username: 인스타그램 사용자명
+            limit: 특정 limit의 캐시만 삭제 (None이면 모든 limit)
+
+        Returns:
+            삭제 성공 여부
+        """
+        if limit is not None:
+            return await self.delete(f"instagram:posts:{username.lower()}:{limit}")
+
+        # 모든 limit에 대해 삭제 시도
+        success = True
+        for l in [12, 20, 30, 50]:
+            if not await self.delete(f"instagram:posts:{username.lower()}:{l}"):
+                success = False
+        return success
+
+
 # 싱글톤 인스턴스
 cache_service = CacheService()

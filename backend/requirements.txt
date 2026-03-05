@@ -28,3 +28,6 @@ structlog==24.4.0
 
 # 유틸리티
 python-dateutil==2.9.0
+
+# Instagram 데이터 수집
+instaloader==4.14

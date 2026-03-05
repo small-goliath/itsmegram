@@ -209,3 +209,66 @@ class ErrorResponse(BaseModel):
     detail: Optional[str] = None
     code: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ========== Instagram 데이터 수집 모델 ==========
+
+class ProfileData(BaseModel):
+    """인스타그램 프로필 데이터 모델"""
+    username: str = Field(..., description="사용자명")
+    full_name: str = Field(default="", description="전체 이름")
+    biography: str = Field(default="", description="소개글")
+    followers: int = Field(default=0, description="팔로워 수")
+    following: int = Field(default=0, description="팔로잉 수")
+    posts_count: int = Field(default=0, description="게시물 수")
+    is_private: bool = Field(default=False, description="비공개 계정 여부")
+    profile_pic_url: str = Field(default="", description="프로필 사진 URL")
+    is_verified: bool = Field(default=False, description="인증된 계정 여부")
+    external_url: Optional[str] = Field(default=None, description="외부 링크")
+
+
+class PostData(BaseModel):
+    """인스타그램 게시물 데이터 모델"""
+    post_id: str = Field(..., description="게시물 ID")
+    caption: str = Field(default="", description="캡션")
+    likes: int = Field(default=0, description="좋아요 수")
+    comments: int = Field(default=0, description="댓글 수")
+    media_url: str = Field(default="", description="미디어 URL")
+    hashtags: List[str] = Field(default_factory=list, description="해시태그 목록")
+    mentions: List[str] = Field(default_factory=list, description="멘션 목록")
+    timestamp: Optional[datetime] = Field(default=None, description="게시 시간")
+    post_type: str = Field(default="image", description="게시물 타입 (image, video, carousel)")
+    shortcode: str = Field(default="", description="게시물 shortcode")
+
+
+class InstagramData(BaseModel):
+    """수집된 인스타그램 전체 데이터 모델"""
+    profile: ProfileData = Field(..., description="프로필 정보")
+    posts: List[PostData] = Field(default_factory=list, description="게시물 목록")
+    collected_at: datetime = Field(default_factory=datetime.utcnow, description="수집 시간")
+
+
+class ProfileResponse(BaseModel):
+    """프로필 조회 응답 모델"""
+    success: bool = Field(default=True, description="성공 여부")
+    data: ProfileData = Field(..., description="프로필 데이터")
+    cached: bool = Field(default=False, description="캐시된 데이터 여부")
+
+
+class PostsResponse(BaseModel):
+    """게시물 조회 응답 모델"""
+    success: bool = Field(default=True, description="성공 여부")
+    username: str = Field(..., description="사용자명")
+    posts: List[PostData] = Field(default_factory=list, description="게시물 목록")
+    total_count: int = Field(default=0, description="총 게시물 수")
+    fetched_count: int = Field(default=0, description="가져온 게시물 수")
+    cached: bool = Field(default=False, description="캐시된 데이터 여부")
+
+
+class ValidationResponse(BaseModel):
+    """사용자명 검증 응답 모델"""
+    username: str = Field(..., description="사용자명")
+    is_valid: bool = Field(..., description="유효성 여부")
+    exists: Optional[bool] = Field(default=None, description="계정 존재 여부")
+    is_private: Optional[bool] = Field(default=None, description="비공개 계정 여부")
+    message: str = Field(default="", description="메시지")

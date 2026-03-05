@@ -10,7 +10,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "itsmegram - AI로 분석하는 나의 인스타그램",
   description:
-    "인스타그램 계정을 AI로 분석하여 콘텐츠 성향, 라이프스타일, 성격 특징을 파악핳세요. 묣은 리포트를 생성하고 스토리로 공유할 수 있습니다.",
+    "인스타그램 계정을 AI로 분석하여 콘텐츠 성향, 라이프스타일, 성격 특징을 파악하세요. 무료 리포트를 생성하고 스토리로 공유할 수 있습니다.",
   keywords: ["인스타그램", "AI 분석", "인스타 분석", "itsmegram", "소셜 미디어 분석"],
   openGraph: {
     title: "itsmegram - AI로 분석하는 나의 인스타그램",
@@ -105,7 +105,7 @@ export default function HomePage() {
       <footer className="py-8 px-4 sm:px-6 lg:px-8 bg-white border-t border-gray-100">
         <div className="max-w-6xl mx-auto text-center">
           <p className="text-sm text-gray-500">
-            © 2025 itsmegram. All rights reserved.
+            © 2026 itsmegram. All rights reserved.
           </p>
           <p className="text-xs text-gray-400 mt-2">
             이 서비스는 Instagram과 관련이 없는 독립적인 서비스입니다.

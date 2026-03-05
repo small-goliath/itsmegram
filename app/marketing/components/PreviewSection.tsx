@@ -101,7 +101,7 @@ export function PreviewSection() {
             이런 리포트가 생성돼요
           </h2>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            AI가 분석한 다양한 유형의 인스타그램 리포트를 미리 확인핳세요
+            AI가 분석한 다양한 유형의 인스타그램 리포트를 미리 확인하세요
           </p>
         </motion.div>
 

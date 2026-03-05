@@ -58,7 +58,7 @@ export function HowItWorksSection() {
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             복잡한 과정 없이 30초면 충분합니다
             <br className="hidden sm:block" />
-            지금 바로 나의 인스타그램을 분석핳세요
+            지금 바로 나의 인스타그램을 분석하세요
           </p>
         </motion.div>
 

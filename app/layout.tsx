@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     template: "%s | itsmegram",
   },
   description:
-    "인스타그램 계정을 AI로 분석하여 콘텐츠 성향, 라이프스타일, 성격 특징을 파악핳세요.",
+    "인스타그램 계정을 AI로 분석하여 콘텐츠 성향, 라이프스타일, 성격 특징을 파악하세요.",
   keywords: ["인스타그램", "AI 분석", "인스타 분석", "itsmegram"],
   authors: [{ name: "itsmegram" }],
   creator: "itsmegram",

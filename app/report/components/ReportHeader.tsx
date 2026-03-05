@@ -22,6 +22,16 @@ export function ReportHeader({
   collectedPostsCount,
   basicMetrics,
 }: ReportHeaderProps) {
+  // 기본값 설정
+  const metrics = basicMetrics || {
+    engagement_rate: 0,
+    avg_likes: 0,
+    avg_comments: 0,
+    followers: 0,
+    following: 0,
+    posts: 0,
+  };
+
   // 참여율에 따른 배지 색상 결정
   const getEngagementBadge = (rate: number) => {
     if (rate >= 5) return { label: "높음", variant: "default" as const };
@@ -29,7 +39,7 @@ export function ReportHeader({
     return { label: "낮음", variant: "outline" as const };
   };
 
-  const engagementBadge = getEngagementBadge(basicMetrics.engagement_rate);
+  const engagementBadge = getEngagementBadge(metrics.engagement_rate);
 
   return (
     <Card className="border-0 shadow-lg overflow-hidden">
@@ -84,7 +94,7 @@ export function ReportHeader({
               <span className="text-xs text-gray-500">평균 좋아요</span>
             </div>
             <div className="text-xl font-bold text-gray-900">
-              {Math.round(basicMetrics.avg_likes).toLocaleString()}
+              {Math.round(metrics.avg_likes).toLocaleString()}
             </div>
           </div>
 
@@ -95,7 +105,7 @@ export function ReportHeader({
               <span className="text-xs text-gray-500">참여율</span>
             </div>
             <div className="text-xl font-bold text-gray-900">
-              {basicMetrics.engagement_rate.toFixed(1)}%
+              {metrics.engagement_rate.toFixed(1)}%
             </div>
             <Badge
               variant={engagementBadge.variant}

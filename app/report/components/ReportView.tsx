@@ -161,7 +161,14 @@ export function ReportView({ reportId }: ReportViewProps) {
         username={report.username}
         profileImageUrl={report.profile_image_url}
         collectedPostsCount={report.collected_posts_count}
-        basicMetrics={report.basic_metrics}
+        basicMetrics={report.basic_metrics || {
+          engagement_rate: 0,
+          avg_likes: 0,
+          avg_comments: 0,
+          followers: 0,
+          following: 0,
+          posts: 0,
+        }}
       />
 
       {/* 핵심 요약 */}
@@ -169,17 +176,38 @@ export function ReportView({ reportId }: ReportViewProps) {
 
       {/* 섹션 그리드 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <ContentTendencySection data={report.content_tendency} />
-        <LifestyleSection data={report.lifestyle} />
-        <PersonalitySection data={report.personality} />
-        <NetworkSection data={report.network} />
+        <ContentTendencySection data={report.content_tendency || {
+          categories: [],
+          visual_style: "",
+          text_style: "",
+          hashtag_pattern: [],
+          posting_frequency: "",
+        }} />
+        <LifestyleSection data={report.lifestyle || {
+          interests: [],
+          activity_pattern: "",
+          consumption: [],
+        }} />
+        <PersonalitySection data={report.personality || {
+          expression_strength: 0,
+          extroversion: "",
+          communication: "",
+        }} />
+        <NetworkSection data={report.network || {
+          engagement_quality: "",
+          community_type: "",
+        }} />
       </div>
 
       {/* 성장 잠재력 (전체 너비) */}
-      <GrowthPotentialSection data={report.growth_potential} />
+      <GrowthPotentialSection data={report.growth_potential || {
+        trend: "",
+        consistency: "",
+        suggestions: [],
+      }} />
 
       {/* 공유 액션 */}
-      <ShareActions reportId={report.id} username={report.username} />
+      <ShareActions reportId={(report as any).report_id || report.id} username={report.username} />
 
       {/* 생성 시간 정보 */}
       <div className="text-center text-xs text-gray-400 pt-4">

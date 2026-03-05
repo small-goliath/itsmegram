@@ -5,7 +5,8 @@
 
 import { AnalysisResponse, AnalysisStatus, Report, ApiError } from "../types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+// API 기본 URL - 클라이언트/서버 모두에서 작동하도록 상대 경로 사용
+const API_BASE_URL = "/api/v1";
 
 /**
  * 분석 요청 API

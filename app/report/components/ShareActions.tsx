@@ -1,8 +1,9 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Download, Share2, Link2, Check } from "lucide-react";
+import { Download, Share2, Link2, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 interface ShareActionsProps {
   reportId: string;
@@ -15,6 +16,7 @@ interface ShareActionsProps {
  */
 export function ShareActions({ reportId, username }: ShareActionsProps) {
   const [copied, setCopied] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // 링크 복사
   const handleCopyLink = async () => {
@@ -22,16 +24,60 @@ export function ShareActions({ reportId, username }: ShareActionsProps) {
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
+      toast.success("링크가 복사되었습니다!");
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("링크 복사 실패:", err);
+      toast.error("링크 복사에 실패했습니다.");
     }
   };
 
-  // 이미지로 저장 (실제 구현은 html2canvas 등 필요)
-  const handleSaveAsImage = () => {
-    // TODO: html2canvas 등을 사용하여 이미지로 저장
-    alert("이미지 저장 기능은 준비 중입니다");
+  // 이미지 다운로드
+  const handleDownload = async () => {
+    setIsDownloading(true);
+    try {
+      const response = await fetch(
+        `/api/v1/report/${reportId}/download?format=png`
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("리포트를 찾을 수 없습니다.");
+        } else if (response.status === 400) {
+          throw new Error("리포트가 아직 생성 중입니다. 잠시 후 다시 시도해주세요.");
+        } else {
+          throw new Error("이미지 생성에 실패했습니다.");
+        }
+      }
+
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+
+      // Content-Disposition 헤더에서 파일명 추출
+      const contentDisposition = response.headers.get("content-disposition");
+      let filename = `itsmegram_${username}_report.png`;
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(blobUrl);
+
+      toast.success("이미지가 저장되었습니다!");
+    } catch (error) {
+      console.error("다운로드 실패:", error);
+      toast.error(error instanceof Error ? error.message : "다운로드에 실패했습니다.");
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   // 공유하기 (Web Share API)
@@ -45,8 +91,13 @@ export function ShareActions({ reportId, username }: ShareActionsProps) {
     if (navigator.share) {
       try {
         await navigator.share(shareData);
+        toast.success("공유되었습니다!");
       } catch (err) {
-        console.error("공유 실패:", err);
+        // 사용자가 취소한 경우
+        if (err instanceof Error && err.name !== "AbortError") {
+          console.error("공유 실패:", err);
+          toast.error("공유에 실패했습니다.");
+        }
       }
     } else {
       // Web Share API 미지원 시 링크 복사
@@ -58,12 +109,22 @@ export function ShareActions({ reportId, username }: ShareActionsProps) {
     <div className="flex flex-col sm:flex-row gap-3 justify-center pt-6">
       {/* 이미지로 저장 버튼 */}
       <Button
-        onClick={handleSaveAsImage}
-        className="bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 text-white hover:opacity-90 transition-opacity"
+        onClick={handleDownload}
+        disabled={isDownloading}
+        className="bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 text-white hover:opacity-90 transition-opacity disabled:opacity-50"
         size="lg"
       >
-        <Download className="mr-2 h-4 w-4" />
-        이미지로 저장
+        {isDownloading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            저장 중...
+          </>
+        ) : (
+          <>
+            <Download className="mr-2 h-4 w-4" />
+            이미지로 저장
+          </>
+        )}
       </Button>
 
       {/* 공유하기 버튼 */}

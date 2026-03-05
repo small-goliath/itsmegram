@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 
 class Settings(BaseSettings):
@@ -64,6 +65,32 @@ class Settings(BaseSettings):
 
     # 리포트 설정
     report_ttl_hours: int = 24  # 리포트 캐시 유효 시간
+
+    # 신뢰할 수 있는 호스트 설정 (프로덕션)
+    allowed_hosts: str = "*"
+
+    @property
+    def allowed_hosts_list(self) -> List[str]:
+        """신뢰할 수 있는 호스트를 리스트로 반환"""
+        if self.allowed_hosts == "*":
+            return ["*"]
+        return [host.strip() for host in self.allowed_hosts.split(",")]
+
+    @field_validator("moonshot_api_key")
+    @classmethod
+    def validate_api_key(cls, v: str) -> str:
+        """Moonshot API 키 유효성 검사"""
+        if not v or v == "your_moonshot_api_key_here":
+            raise ValueError("MOONSHOT_API_KEY가 설정되지 않았습니다")
+        return v
+
+    @field_validator("cors_origins")
+    @classmethod
+    def validate_cors_origins(cls, v: str) -> str:
+        """CORS 오리진 유효성 검사"""
+        if not v:
+            return "http://localhost:3000"
+        return v
 
 
 @lru_cache()

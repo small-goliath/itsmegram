@@ -28,6 +28,7 @@ class AnalyzeRequest(BaseModel):
         examples=["instagram", "natgeo"],
         min_length=1,
         max_length=30,
+        pattern=r'^[a-zA-Z0-9._]+$',
     )
 
     @field_validator("username")
@@ -37,12 +38,26 @@ class AnalyzeRequest(BaseModel):
         인스타그램 사용자명 유효성 검사
         - 영문자, 숫자, 밑줄(_), 마침표(.)만 허용
         - 공백 불가
+        - 예약된 사용자명 체크
+        - 연속된 특수문자 체크
         """
         import re
+
+        # 기본 패턴 검사
         if not re.match(r'^[a-zA-Z0-9._]{1,30}$', v):
             raise ValueError(
                 "사용자명은 1-30자의 영문자, 숫자, 밑줄(_), 마침표(.)만 사용 가능합니다"
             )
+
+        # 예약된 사용자명 체크
+        reserved = ['admin', 'api', 'report', 'marketing', 'health', 'docs', 'static', 'media']
+        if v.lower() in reserved:
+            raise ValueError('사용할 수 없는 사용자명입니다')
+
+        # 연속된 점/언더스코어 체크
+        if '..' in v or '__' in v:
+            raise ValueError('잘못된 사용자명 형식입니다')
+
         return v.lower().strip()  # 소문자로 변환 및 공백 제거
 
     model_config = {

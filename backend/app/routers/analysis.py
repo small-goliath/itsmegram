@@ -29,6 +29,9 @@ from app.services.report_service import report_service, ReportCreationError
 
 router = APIRouter()
 
+# Rate Limiter 인스턴스 (main.py에서 주입됨)
+limiter = Limiter(key_func=get_remote_address)
+
 # In-memory storage for demo (production에서는 Redis 사용 권장)
 analysis_jobs: Dict[str, Dict[str, Any]] = {}
 
@@ -79,8 +82,10 @@ async def _run_analysis_background(report_id: str, username: str):
     summary="인스타그램 계정 분석 시작",
     description="인스타그램 사용자명을 받아 AI 분석을 시작합니다. 새로운 리포트 저장소 시스템을 사용합니다.",
 )
+@limiter.limit("5/hour")  # 분석 요청: IP당 5회/시간
 async def start_analysis(
-    request: AnalyzeRequest,
+    request: Request,  # slowapi를 위한 Request 객체
+    data: AnalyzeRequest,
     background_tasks: BackgroundTasks,
 ) -> AnalyzeResponse:
     """
@@ -104,7 +109,7 @@ async def start_analysis(
     # 새로운 리포트 서비스를 사용하여 리포트 생성
     try:
         report_id = await report_service.create_report_async(
-            username=request.username,
+            username=data.username,
             background_tasks=background_tasks
         )
 

@@ -3,8 +3,10 @@ Instagram 데이터 수집 라우터
 인스타그램 프로필 및 게시물 데이터 수집 API
 """
 
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Request
 from typing import Optional
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.models.schemas import (
     ProfileData,
@@ -26,6 +28,9 @@ import structlog
 logger = structlog.get_logger()
 router = APIRouter()
 
+# Rate Limiter 인스턴스
+limiter = Limiter(key_func=get_remote_address)
+
 
 @router.get(
     "/instagram/profile/{username}",
@@ -39,7 +44,9 @@ router = APIRouter()
     summary="인스타그램 프로필 조회",
     description="특정 사용자명의 인스타그램 프로필 정보를 조회합니다.",
 )
+@limiter.limit("20/minute")  # 프로필 조회: 20회/분
 async def get_instagram_profile(
+    request: Request,  # slowapi를 위한 Request 객체
     username: str,
     use_cache: bool = Query(default=True, description="캐시 사용 여부"),
 ) -> ProfileResponse:

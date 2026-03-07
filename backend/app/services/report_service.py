@@ -20,6 +20,10 @@ from app.services.instagram_service import (
     RateLimitError,
     InstagramServiceError,
 )
+from app.services.analytics_service import analytics_service
+from app.config import get_settings
+
+settings = get_settings()
 
 logger = structlog.get_logger()
 
@@ -119,21 +123,45 @@ class ReportService:
             except ProfileNotFoundError as e:
                 error_msg = f"Profile '{username}' not found on Instagram"
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
                 raise ReportCreationError(error_msg, username=username)
 
             except PrivateAccountError as e:
                 error_msg = f"Account '{username}' is private and cannot be analyzed"
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
                 raise ReportCreationError(error_msg, username=username)
 
             except RateLimitError as e:
                 error_msg = "Instagram API rate limit exceeded. Please try again later."
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
                 raise ReportCreationError(error_msg, username=username)
 
             except InstagramServiceError as e:
                 error_msg = f"Failed to fetch Instagram data: {e.message}"
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
                 raise ReportCreationError(error_msg, username=username)
 
             # 3. AI 분석 수행
@@ -148,11 +176,23 @@ class ReportService:
             except AIServiceError as e:
                 error_msg = f"AI analysis failed: {e.message}"
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
                 raise ReportCreationError(error_msg, username=username)
 
             except Exception as e:
                 error_msg = f"Unexpected error during AI analysis: {str(e)}"
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
                 raise ReportCreationError(error_msg, username=username)
 
             # 4. 리포트 데이터 업데이트
@@ -177,11 +217,27 @@ class ReportService:
                     status="completed"
                 )
 
+                # 분석 완료 트래킹
+                await analytics_service.track_analysis_complete(
+                    report_id=report.id,
+                    username=username,
+                    metadata={
+                        "posts_count": len(instagram_data.posts),
+                        "followers": instagram_data.profile.followers,
+                    },
+                )
+
                 return report.id
 
             except Exception as e:
                 error_msg = f"Failed to update report: {str(e)}"
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
                 raise ReportCreationError(error_msg, username=username)
 
         except ReportCreationError:
@@ -191,6 +247,12 @@ class ReportService:
             logger.error("unexpected_report_creation_error", username=username, error=str(e))
             try:
                 await self._mark_report_failed(report.id, error_msg)
+                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
             except:
                 pass
             raise ReportCreationError(error_msg, username=username)
@@ -425,9 +487,25 @@ class ReportService:
 
             logger.info("background_report_processing_completed", report_id=report_id)
 
+            # 분석 완료 트래킹
+            await analytics_service.track_analysis_complete(
+                report_id=report_id,
+                username=username,
+                metadata={
+                    "posts_count": len(instagram_data.posts),
+                    "followers": instagram_data.profile.followers,
+                },
+            )
+
         except Exception as e:
             logger.error("background_report_processing_failed", report_id=report_id, error=str(e))
             await self._mark_report_failed(report_id, str(e))
+            # 분석 실패 트래킹
+            await analytics_service.track_analysis_failed(
+                report_id=report_id,
+                username=username,
+                error_message=str(e),
+            )
 
 
 # 싱글톤 인스턴스

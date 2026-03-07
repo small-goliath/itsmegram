@@ -29,6 +29,7 @@ from app.services.report_service import (
     ReportExpiredError,
 )
 from app.services.storage_service import ReportExpiredError as StorageExpiredError
+from app.services.analytics_service import analytics_service
 
 router = APIRouter()
 
@@ -335,6 +336,13 @@ async def download_report(
 
         filename = f"itsmegram_{report.username}_report.{ext}"
 
+        # 다운로드 트래킹
+        await analytics_service.track_download(
+            report_id=report_id,
+            format=format,
+            username=report.username,
+        )
+
         # 스트리밍 응답 반환 (attachment로 설정, CDN 캐싱 헤더 포함)
         return StreamingResponse(
             io.BytesIO(image_bytes),
@@ -574,13 +582,12 @@ async def track_share(
             timestamp=datetime.now().isoformat(),
         )
 
-        # TODO: 실제 analytics 서비스 연동
-        # await analytics.track("report_shared", {
-        #     "report_id": report_id,
-        #     "platform": platform,
-        #     "username": report.username,
-        #     "timestamp": datetime.now().isoformat(),
-        # })
+        # Analytics 서비스에 공유 트래킹
+        await analytics_service.track_share(
+            report_id=report_id,
+            platform=platform,
+            username=report.username,
+        )
 
         return {
             "success": True,

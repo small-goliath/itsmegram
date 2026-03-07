@@ -26,6 +26,7 @@ from app.config import get_settings
 from app.services.instagram_service import instagram_service
 from app.services.ai_service import ai_service, AIServiceError, MoonshotAPIError, AnalysisTimeoutError
 from app.services.report_service import report_service, ReportCreationError
+from app.services.analytics_service import analytics_service
 from app.utils.logger import get_logger
 
 router = APIRouter()
@@ -118,6 +119,14 @@ async def start_analysis(
         )
 
         logger.info("analysis_started", report_id=report_id, username=data.username)
+
+        # 분석 시작 트래킹
+        await analytics_service.track_analysis_start(
+            report_id=report_id,
+            username=data.username,
+            session_id=None,  # 세션 ID는 필요시 추가
+            ip_address=request.client.host if request.client else None,
+        )
 
         return AnalyzeResponse(
             report_id=report_id,

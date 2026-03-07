@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.routers import health, instagram, analysis, report, analytics
 from app.utils.logger import setup_logging, get_logger
 from app.middleware.error_handler import setup_exception_handlers
+from app.middleware.request_logger import RequestLoggingMiddleware, ErrorLoggingMiddleware
 
 # 설정 로드
 settings = get_settings()
@@ -113,6 +114,11 @@ if not settings.debug:
 # GZip 압축 미들웨어 추가 (1KB 이상 응답만 압축)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 logger.info("gzip_middleware_enabled", minimum_size=1000)
+
+# 요청/응답 로깅 미들웨어
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(ErrorLoggingMiddleware)
+logger.info("request_logging_middleware_enabled")
 
 
 # API v1 라우터 등록

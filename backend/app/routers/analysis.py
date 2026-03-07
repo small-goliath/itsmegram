@@ -24,7 +24,12 @@ from app.models.schemas import (
 )
 from app.config import get_settings
 from app.services.instagram_service import instagram_service
-from app.services.ai_service import ai_service, AIServiceError, MoonshotAPIError, AnalysisTimeoutError
+from app.services.ai_service import ai_service
+from app.utils.exceptions import (
+    AIServiceError,
+    MoonshotAPIError,
+    AnalysisTimeoutError,
+)
 from app.services.report_service import report_service, ReportCreationError
 from app.services.analytics_service import analytics_service
 from app.utils.logger import get_logger

@@ -122,7 +122,7 @@ export function ReportContent({ username }: ReportContentProps) {
         </h2>
         <p className="text-gray-600 text-center max-w-md mb-6">{error}</p>
         <div className="flex gap-3">
-          <Button onClick={() => router.push("/")} variant="outline">
+          <Button onClick={() => router.push("/")} variant="outline" className="text-gray-900 border-gray-300 hover:bg-gray-100">
             <ArrowLeft className="mr-2 h-4 w-4" />
             홈으로 돌아가기
           </Button>

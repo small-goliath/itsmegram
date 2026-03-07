@@ -11,56 +11,25 @@ import structlog
 
 from app.models.report import Report
 from app.models.schemas import InstagramData
-from app.services.storage_service import ReportStorage, ReportExpiredError as StorageReportExpiredError, ReportNotFoundError as StorageReportNotFoundError
+from app.services.storage_service import ReportStorage
 from app.services.ai_service import AIService, AIServiceError
-from app.services.instagram_service import (
-    InstagramService,
+from app.services.instagram_service import InstagramService
+from app.services.analytics_service import analytics_service
+from app.utils.exceptions import (
+    InstagramServiceError,
     ProfileNotFoundError,
     PrivateAccountError,
     RateLimitError,
-    InstagramServiceError,
+    ReportServiceError,
+    ReportNotFoundError,
+    ReportExpiredError,
+    ReportCreationError,
 )
-from app.services.analytics_service import analytics_service
 from app.config import get_settings
 
 settings = get_settings()
 
 logger = structlog.get_logger()
-
-
-class ReportServiceError(Exception):
-    """리포트 서비스 기본 예외"""
-    def __init__(self, message: str, code: str = "report_service_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
-
-
-class ReportCreationError(ReportServiceError):
-    """리포트 생성 오류"""
-    def __init__(self, message: str, username: Optional[str] = None):
-        super().__init__(message=message, code="report_creation_error")
-        self.username = username
-
-
-class ReportNotFoundError(ReportServiceError):
-    """리포트를 찾을 수 없는 경우"""
-    def __init__(self, report_id: str):
-        super().__init__(
-            message=f"Report '{report_id}' not found",
-            code="report_not_found"
-        )
-        self.report_id = report_id
-
-
-class ReportExpiredError(ReportServiceError):
-    """리포트가 만료된 경우"""
-    def __init__(self, report_id: str):
-        super().__init__(
-            message=f"Report '{report_id}' has expired",
-            code="report_expired"
-        )
-        self.report_id = report_id
 
 
 class ReportService:
@@ -297,9 +266,9 @@ class ReportService:
             logger.debug("report_found", report_id=report_id, status=report.status)
             return report
 
-        except (StorageReportNotFoundError, ReportNotFoundError):
+        except ReportNotFoundError:
             raise ReportNotFoundError(report_id)
-        except (StorageReportExpiredError, ReportExpiredError):
+        except ReportExpiredError:
             raise ReportExpiredError(report_id)
         except Exception as e:
             logger.error("report_get_error", report_id=report_id, error=str(e))

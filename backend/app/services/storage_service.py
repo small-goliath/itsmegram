@@ -13,36 +13,13 @@ import asyncio
 import structlog
 
 from app.models.report import Report
+from app.utils.exceptions import (
+    StorageError,
+    ReportNotFoundError,
+    ReportExpiredError,
+)
 
 logger = structlog.get_logger()
-
-
-class StorageError(Exception):
-    """저장소 기본 예외"""
-    def __init__(self, message: str, code: str = "storage_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
-
-
-class ReportNotFoundError(StorageError):
-    """리포트를 찾을 수 없는 경우"""
-    def __init__(self, report_id: str):
-        super().__init__(
-            message=f"Report '{report_id}' not found",
-            code="report_not_found"
-        )
-        self.report_id = report_id
-
-
-class ReportExpiredError(StorageError):
-    """리포트가 만료된 경우"""
-    def __init__(self, report_id: str):
-        super().__init__(
-            message=f"Report '{report_id}' has expired",
-            code="report_expired"
-        )
-        self.report_id = report_id
 
 
 class BaseStorage(ABC):

@@ -21,40 +21,14 @@ from app.models.schemas import (
     ReportData,
 )
 from app.services.cache_service import cache_service
+from app.utils.exceptions import (
+    AIServiceError,
+    MoonshotAPIError,
+    AnalysisParsingError,
+    AnalysisTimeoutError,
+)
 
 logger = structlog.get_logger()
-
-
-class AIServiceError(Exception):
-    """AI 서비스 기본 예외"""
-    def __init__(self, message: str, code: str = "ai_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
-
-
-class MoonshotAPIError(AIServiceError):
-    """Moonshot API 호출 오류"""
-    def __init__(self, message: str, original_error: Optional[Exception] = None):
-        super().__init__(message=message, code="moonshot_api_error")
-        self.original_error = original_error
-
-
-class AnalysisParsingError(AIServiceError):
-    """분석 결과 파싱 오류"""
-    def __init__(self, message: str, raw_content: Optional[str] = None):
-        super().__init__(message=message, code="analysis_parsing_error")
-        self.raw_content = raw_content
-
-
-class AnalysisTimeoutError(AIServiceError):
-    """분석 타임아웃 오류"""
-    def __init__(self, timeout_seconds: int = 30):
-        super().__init__(
-            message=f"Analysis timed out after {timeout_seconds} seconds",
-            code="analysis_timeout"
-        )
-        self.timeout_seconds = timeout_seconds
 
 
 class AIService:

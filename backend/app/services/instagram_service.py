@@ -19,46 +19,15 @@ from instaloader.exceptions import (
 
 from app.models.schemas import ProfileData, PostData, InstagramData
 from app.services.cache_service import cache_service
+from app.utils.exceptions import (
+    InstagramServiceError,
+    ProfileNotFoundError,
+    PrivateAccountError,
+    RateLimitError,
+)
 import structlog
 
 logger = structlog.get_logger()
-
-
-class InstagramServiceError(Exception):
-    """Instagram 서비스 기본 예외"""
-    def __init__(self, message: str, code: str = "instagram_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
-
-
-class ProfileNotFoundError(InstagramServiceError):
-    """프로필을 찾을 수 없는 경우"""
-    def __init__(self, username: str):
-        super().__init__(
-            message=f"Profile '{username}' not found",
-            code="profile_not_found"
-        )
-        self.username = username
-
-
-class PrivateAccountError(InstagramServiceError):
-    """비공개 계정인 경우"""
-    def __init__(self, username: str):
-        super().__init__(
-            message=f"Account '{username}' is private and cannot be analyzed",
-            code="private_account"
-        )
-        self.username = username
-
-
-class RateLimitError(InstagramServiceError):
-    """API Rate Limit에 걸린 경우"""
-    def __init__(self, message: str = "Rate limit exceeded"):
-        super().__init__(
-            message=message,
-            code="rate_limit"
-        )
 
 
 class InstagramService:

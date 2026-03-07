@@ -22,8 +22,8 @@ from app.models.schemas import (
 )
 from app.models.report import Report
 from app.config import get_settings
-from app.services.report_service import (
-    report_service,
+from app.services.report_service import report_service
+from app.utils.exceptions import (
     ReportServiceError,
     ReportNotFoundError,
     ReportExpiredError,

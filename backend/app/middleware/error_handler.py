@@ -9,124 +9,23 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.utils.logger import get_logger
+from app.utils.exceptions import (
+    InstagramServiceError,
+    ProfileNotFoundError,
+    PrivateAccountError,
+    RateLimitError,
+    AIServiceError,
+    MoonshotAPIError,
+    AnalysisParsingError,
+    AnalysisTimeoutError,
+    ReportServiceError,
+    ReportNotFoundError,
+    ReportExpiredError,
+    ReportCreationError,
+    StorageError,
+)
 
 logger = get_logger("error_handler")
-
-
-# =============================================================================
-# 커스텀 예외 클래스들
-# =============================================================================
-
-class InstagramServiceError(Exception):
-    """Instagram 서비스 기본 예외"""
-    def __init__(self, message: str, code: str = "instagram_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
-
-
-class ProfileNotFoundError(InstagramServiceError):
-    """프로필을 찾을 수 없는 경우"""
-    def __init__(self, username: str):
-        self.username = username
-        super().__init__(
-            message=f"Profile '{username}' not found",
-            code="profile_not_found"
-        )
-
-
-class PrivateAccountError(InstagramServiceError):
-    """비공개 계정인 경우"""
-    def __init__(self, username: str):
-        self.username = username
-        super().__init__(
-            message=f"Account '{username}' is private and cannot be analyzed",
-            code="private_account"
-        )
-
-
-class RateLimitError(InstagramServiceError):
-    """API Rate Limit에 걸린 경우"""
-    def __init__(self, message: str = "Rate limit exceeded"):
-        super().__init__(
-            message=message,
-            code="rate_limit"
-        )
-
-
-class AIServiceError(Exception):
-    """AI 서비스 기본 예외"""
-    def __init__(self, message: str, code: str = "ai_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
-
-
-class MoonshotAPIError(AIServiceError):
-    """Moonshot API 호출 오류"""
-    def __init__(self, message: str, original_error: Exception = None):
-        super().__init__(message=message, code="moonshot_api_error")
-        self.original_error = original_error
-
-
-class AnalysisParsingError(AIServiceError):
-    """분석 결과 파싱 오류"""
-    def __init__(self, message: str, raw_content: str = None):
-        super().__init__(message=message, code="analysis_parsing_error")
-        self.raw_content = raw_content
-
-
-class AnalysisTimeoutError(AIServiceError):
-    """분석 타임아웃 오류"""
-    def __init__(self, timeout_seconds: int = 30):
-        super().__init__(
-            message=f"Analysis timed out after {timeout_seconds} seconds",
-            code="analysis_timeout"
-        )
-        self.timeout_seconds = timeout_seconds
-
-
-class ReportServiceError(Exception):
-    """리포트 서비스 기본 예외"""
-    def __init__(self, message: str, code: str = "report_service_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
-
-
-class ReportNotFoundError(ReportServiceError):
-    """리포트를 찾을 수 없는 경우"""
-    def __init__(self, report_id: str):
-        self.report_id = report_id
-        super().__init__(
-            message=f"Report '{report_id}' not found",
-            code="report_not_found"
-        )
-
-
-class ReportExpiredError(ReportServiceError):
-    """리포트가 만료된 경우"""
-    def __init__(self, report_id: str):
-        self.report_id = report_id
-        super().__init__(
-            message=f"Report '{report_id}' has expired",
-            code="report_expired"
-        )
-
-
-class ReportCreationError(ReportServiceError):
-    """리포트 생성 오류"""
-    def __init__(self, message: str, username: str = None):
-        super().__init__(message=message, code="report_creation_error")
-        self.username = username
-
-
-class StorageError(Exception):
-    """저장소 기본 예외"""
-    def __init__(self, message: str, code: str = "storage_error"):
-        self.message = message
-        self.code = code
-        super().__init__(self.message)
 
 
 # =============================================================================
@@ -201,8 +100,9 @@ async def private_account_handler(request: Request, exc: PrivateAccountError):
 
 async def rate_limit_handler(request: Request, exc: RateLimitError):
     """Rate Limit 초과 시 핸들러"""
-    logger.warning(
+    logger.error(
         "rate_limit_exceeded",
+        message=exc.message,
         path=request.url.path,
         client_ip=request.client.host if request.client else None
     )
@@ -302,7 +202,7 @@ async def report_creation_handler(request: Request, exc: ReportCreationError):
     return create_error_response(
         error_code="REPORT_CREATION_FAILED",
         message="리포트 생성에 실패했습니다",
-        suggestion="잠시 후 다시 시도해주세요. 문제가 지속되면 다른 사용자명으로 시도해보세요",
+        suggestion="잠시 후 다시 시도해주세요. 문제가 지속되면 다른 사용자명으로 시도필보세요",
         status_code=500
     )
 

@@ -24,6 +24,10 @@ from app.utils.exceptions import (
     ReportCreationError,
     StorageError,
 )
+from app.services.circuit_breaker import CircuitBreakerOpenError
+from app.services.metrics_service import metrics
+
+logger = get_logger("error_handler")"}  بشكل literal  (replace_all=False)  ...  Wait, I need to remove the duplicate logger line. Let me check the file again. I see logger is defined on line 33. Let me be careful with the replacement. Let me try a different approach - first I'll remove the duplicate logger line, then add the new imports. actually, let me just replace the imports section: I need to be careful. The current file has the imports and then `logger = get_logger(
 
 logger = get_logger("error_handler")
 
@@ -106,12 +110,43 @@ async def rate_limit_handler(request: Request, exc: RateLimitError):
         path=request.url.path,
         client_ip=request.client.host if request.client else None
     )
+    # Record metric
+    metrics.record_rate_limit_hit()
+    metrics.record_error("rate_limit")
+
     return create_error_response(
-        error_code="RATE_LIMIT_EXCEEDED",
-        message="Instagram API 요청 한도를 초과했습니다",
-        suggestion="잠시 후 다시 시도해주세요 (보통 1시간 후 재시도 가능)",
+        error_code="RATE_LIMITED_BY_INSTAGRAM",
+        message="Instagram에서 일시적으로 요청을 차단했습니다",
+        suggestion="5분 후에 다시 시도하거나, 다른 계정으로 분석해 보세요. 지속적인 차단은 서버 부하를 낮추기 위한 조치입니다.",
         status_code=429,
-        extra={"retry_after": 3600}
+        extra={
+            "retry_after_seconds": 300,
+            "retry_after_minutes": 5,
+            "alternative_action": "다른 계정으로 분석 시도"
+        }
+    )
+
+
+async def circuit_breaker_handler(request: Request, exc: CircuitBreakerOpenError):
+    """Circuit Breaker Open 시 핸들러"""
+    logger.warning(
+        "circuit_breaker_open",
+        path=request.url.path,
+        client_ip=request.client.host if request.client else None
+    )
+    # Record metric
+    metrics.record_error("circuit_breaker_open")
+
+    return create_error_response(
+        error_code="SERVICE_UNAVAILABLE",
+        message="현재 Instagram 분석 서비스가 일시적으로 사용 불가능합니다",
+        suggestion="서버 과부하로 인해 잠시 동안 요청을 받을 수 없습니다. 5-10분 후 다시 시도해주세요.",
+        status_code=503,
+        extra={
+            "retry_after_seconds": 300,
+            "retry_after_minutes": 5,
+            "reason": "consecutive_failures"
+        }
     )
 
 
@@ -312,6 +347,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ProfileNotFoundError, profile_not_found_handler)
     app.add_exception_handler(PrivateAccountError, private_account_handler)
     app.add_exception_handler(RateLimitError, rate_limit_handler)
+    app.add_exception_handler(CircuitBreakerOpenError, circuit_breaker_handler)
 
     # AI 분석 관련 예외
     app.add_exception_handler(AIServiceError, ai_service_handler)

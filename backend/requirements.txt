@@ -30,8 +30,8 @@ python-json-logger==2.0.7
 # 유틸리티
 python-dateutil==2.9.0
 
-# Instagram 데이터 수집
-instaloader==4.14
+# Instagram 직접 HTTP 요청 (Instaloader 제거 대체)
+curl_cffi>=0.6.0
 
 # AI 분석 (Moonshot AI)
 openai>=1.0.0

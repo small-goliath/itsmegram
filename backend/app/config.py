@@ -35,11 +35,6 @@ class Settings(BaseSettings):
     # Moonshot AI API 설정
     moonshot_api_key: str = ""
 
-    # Instagram API 설정 (선택적)
-    instagram_api_token: Optional[str] = None
-    instagram_app_id: Optional[str] = None
-    instagram_app_secret: Optional[str] = None
-
     # CORS 설정
     cors_origins: str = "http://localhost:3000"
 

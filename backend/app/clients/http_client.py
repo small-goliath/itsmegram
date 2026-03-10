@@ -13,6 +13,7 @@ from app.utils.exceptions import (
     ProfileNotFoundError,
     RateLimitError,
 )
+from app.services.circuit_breaker import instagram_circuit_breaker, CircuitBreakerOpenError
 import structlog
 
 logger = structlog.get_logger()
@@ -48,22 +49,8 @@ class InstagramHTTPClient:
             "Referer": "https://www.instagram.com/",
         }
 
-    async def fetch_profile(self, username: str, max_retries: int = 3) -> Dict[str, Any]:
-        """
-        Fetch profile data from Instagram web_profile_info API
-
-        Args:
-            username: Instagram username to fetch
-            max_retries: Maximum number of retry attempts
-
-        Returns:
-            Raw JSON response from Instagram API
-
-        Raises:
-            ProfileNotFoundError: If profile doesn't exist
-            RateLimitError: If rate limited by Instagram
-            InstagramServiceError: For other errors
-        """
+    async def _fetch_profile_internal(self, username: str, max_retries: int = 3) -> Dict[str, Any]:
+        """Internal method to fetch profile data"""
         params = {"username": username}
 
         for attempt in range(max_retries):
@@ -131,6 +118,28 @@ class InstagramHTTPClient:
                 await asyncio.sleep(wait_time)
 
         raise InstagramServiceError("Max retries exceeded")
+
+    async def fetch_profile(self, username: str, max_retries: int = 3) -> Dict[str, Any]:
+        """
+        Fetch profile data from Instagram web_profile_info API
+        Uses circuit breaker to prevent cascading failures
+
+        Args:
+            username: Instagram username to fetch
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            Raw JSON response from Instagram API
+
+        Raises:
+            ProfileNotFoundError: If profile doesn't exist
+            RateLimitError: If rate limited by Instagram
+            CircuitBreakerOpenError: If circuit breaker is open
+            InstagramServiceError: For other errors
+        """
+        return await instagram_circuit_breaker.call(
+            self._fetch_profile_internal, username, max_retries
+        )</invoke>
 
 
 # Singleton instance

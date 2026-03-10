@@ -2,222 +2,218 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
-        "title": "프로젝트 초기 설정 및 개발 환경 구축",
-        "description": "Next.js + Python FastAPI 기반의 풀스택 프로젝트 구조 설정 및 동시 실행 환경 구성",
-        "details": "1. Next.js 15+ (App Router) + TypeScript 프로젝트 생성\n```bash\nnpx create-next-app@latest frontend --typescript --tailwind --app\n```\n2. Python FastAPI 백엔드 프로젝트 구조 생성\n```\nbackend/\n├── app/\n│   ├── __init__.py\n│   ├── main.py          # FastAPI 앱 진입점\n│   ├── routers/\n│   ├── services/\n│   └── models/\n├── requirements.txt\n└── .env\n```\n3. concurrently 패키지 설치 및 npm start 스크립트 설정\n```json\n{\n  \"scripts\": {\n    \"start\": \"concurrently \\\"npm run frontend\\\" \\\"npm run backend\\\"\",\n    \"frontend\": \"next dev\",\n    \"backend\": \"cd backend && uvicorn app.main:app --reload --port 8000\"\n  }\n}\n```\n4. 환경 변수 설정 (.env)\n- MOONSHOT_API_KEY\n- INSTAGRAM_API_TOKEN (필요시)\n- CORS_ORIGINS\n5. 기본 폰트 및 Tailwind 설정 (Instagram 브랜드 컬러 그라데이션 정의)",
-        "testStrategy": "npm start 실행 시 프론트엔드(3000번 포트)와 백엔드(8000번 포트)가 동시에 실행되는지 확인",
+        "id": "16",
+        "title": "Instaloader 의존성 제거 및 새로운 HTTP 클라이언트 의존성 추가",
+        "description": "requirements.txt에서 instaloader 제거하고 httpx, curl_cffi 추가",
+        "details": "1. backend/requirements.txt 수정:\n```diff\n- # Instagram 데이터 수집\n- instaloader==4.14\n\n+ # Instagram 직접 HTTP 요청\n+ httpx>=0.27.0\n+ curl_cffi>=0.6.0\n```\n\n2. 불필요한 의존성 제거 확인:\n- beautifulsoup4 (HTML 파싱 불필요)\n- lxml (BS4 파서 불필요)\n\n3. 가상환경 업데이트:\n```bash\ncd backend\npip uninstall instaloader beautifulsoup4 lxml -y\npip install httpx>=0.27.0 curl_cffi>=0.6.0\npip freeze > requirements.txt\n```",
+        "testStrategy": "pip list | grep -E '(instaloader|httpx|curl_cffi)' 확인하여 instaloader가 없고 httpx/curl_cffi가 있는지 검증",
         "priority": "high",
         "dependencies": [],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-02-21T07:30:50.312Z"
+        "updatedAt": "2026-03-10T06:23:56.221Z"
       },
       {
-        "id": "2",
-        "title": "홈 페이지 UI 개발",
-        "description": "인스타그램 username 입력 폼과 서비스 소개가 포함된 메인 랜딩 페이지 구현",
-        "details": "1. App Router 기반 페이지 구조 생성\n```\napp/\n├── page.tsx              # 홈 페이지\n├── layout.tsx            # 루트 레이아웃\n└── globals.css           # 전역 스타일\n```\n2. Hero 섹션 컴포넌트 구현\n- 서비스 타이틀: \"itsmegram\"\n- 서비스 설명: \"AI로 분석하는 나의 인스타그램\"\n- Instagram 그라데이션 배경 적용 (bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-500)\n3. Username 입력 폼 구현\n```tsx\n<form onSubmit={handleSubmit}>\n  <input \n    type=\"text\" \n    placeholder=\"인스타그램 아이디를 입력하세요\"\n    pattern=\"^[a-zA-Z0-9._]{1,30}$\"\n    required\n  />\n  <button type=\"submit\">분석하기</button>\n</form>\n```\n4. 기능 소개 카드 4개 구현 (Grid 레이아웃)\n- AI 분석 아이콘 + 설명\n- 리포트 생성 아이콘 + 설명\n- 스토리 공유 아이콘 + 설명\n- 개인정보 보호 아이콘 + 설명\n5. 반응형 디자인 (mobile-first)",
-        "testStrategy": "1. 다양한 화면 크기에서 레이아웃 확인\n2. username 입력 유효성 검증 테스트\n3. '분석하기' 버튼 클릭 시 /report 페이지로 라우팅 확인",
+        "id": "17",
+        "title": "HTTP Client 모듈 구현 (curl_cffi 기반)",
+        "description": "Instagram web_profile_info API 호출용 HTTP 클라이언트 구현",
+        "details": "파일: backend/app/clients/http_client.py\n\n```python\nfrom curl_cffi import requests\nimport random\nfrom typing import Optional, Dict, Any\nimport asyncio\n\nUSER_AGENTS = [\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\",\n    \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\",\n    \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0\",\n    \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15\",\n]\n\nclass InstagramHTTPClient:\n    BASE_URL = \"https://www.instagram.com/api/v1/users/web_profile_info/\"\n    IG_APP_ID = \"936619743392459\"\n    \n    def __init__(self):\n        self.session = requests.Session(impersonate=\"chrome120\")\n        \n    def _get_headers(self) -> Dict[str, str]:\n        return {\n            \"x-ig-app-id\": self.IG_APP_ID,\n            \"User-Agent\": random.choice(USER_AGENTS),\n            \"Accept\": \"*/*\",\n            \"Accept-Language\": \"en-US,en;q=0.9\",\n            \"Referer\": \"https://www.instagram.com/\",\n        }\n    \n    async def fetch_profile(self, username: str, max_retries: int = 3) -> Dict[str, Any]:\n        params = {\"username\": username}\n        \n        for attempt in range(max_retries):\n            try:\n                response = await asyncio.to_thread(\n                    self.session.get,\n                    self.BASE_URL,\n                    params=params,\n                    headers=self._get_headers(),\n                    timeout=30\n                )\n                \n                if response.status_code == 200:\n                    return response.json()\n                elif response.status_code == 404:\n                    raise ProfileNotFoundError(username)\n                elif response.status_code == 429:\n                    delay = min(300, (2 ** attempt) * 5)\n                    jitter = random.uniform(0, delay * 0.1)\n                    await asyncio.sleep(delay + jitter)\n                    continue\n                elif response.status_code in (401, 403):\n                    raise RateLimitError(f\"Access denied for {username}\")\n                else:\n                    response.raise_for_status()\n                    \n            except Exception as e:\n                if attempt == max_retries - 1:\n                    raise InstagramServiceError(f\"Failed to fetch profile: {str(e)}\")\n                await asyncio.sleep(5 * (attempt + 1))\n        \n        raise InstagramServiceError(\"Max retries exceeded\")\n\n# 싱글톤 인스턴스\nhttp_client = InstagramHTTPClient()\n```\n\n추가 필요 파일:\n- backend/app/clients/__init__.py 생성",
+        "testStrategy": "1. 단위 테스트: mock server로 HTTP 요청 테스트\n2. 실제 Instagram API 호출 테스트 (제한적으로)\n3. 404/429 에러 처리 테스트",
         "priority": "high",
         "dependencies": [
-          "1"
+          "16"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-02-21T07:30:27.763Z"
+        "updatedAt": "2026-03-10T06:25:31.192Z"
       },
       {
-        "id": "3",
-        "title": "마케팅 페이지 개발",
-        "description": "실제 고객 유입용 인터랙티브 랜딩 페이지 구현",
-        "details": "1. /marketing 경로 페이지 생성\n```tsx\napp/marketing/page.tsx\n```\n2. 섹션별 컴포넌트 구현:\n\n**Hero 섹션:**\n- 풀스크린 그라데이션 배경\n- 애니메이션 타이틀 (Framer Motion 활용)\n- CTA 버튼: \"무료 분석 받아보기\"\n\n**기능 소개 섹션:**\n- 3열 그리드 카드 레이아웃\n- 각 카드에 아이콘 + 제목 + 설명\n- 호버 시 애니메이션 효과\n\n**리포트 미리보기 섹션:**\n- 샘플 리포트 이미지 캐러셀\n- 또는 실제 리포트 UI 목업\n\n**사용 방법 섹션:**\n- 3단계 프로세스 시각화 (Stepper)\n1. 아이디 입력 → 2. AI 분석 → 3. 리포트 확인\n\n**CTA 섹션:**\n- 하단 고정 또는 별도 섹션\n- \"지금 바로 분석하기\" 버튼 → 홈페이지 이동\n\n3. 모바일 최적화\n- 터치 친화적 버튼 크기 (min 44px)\n- 스크롤 기반 애니메이션\n4. SEO 메타데이터 설정",
-        "testStrategy": "1. 모바일/태블릿/데스크톱 반응형 테스트\n2. 페이지 로딩 속도 측정 (Lighthouse)\n3. CTA 버튼 클릭 및 네비게이션 확인\n4. 스크롤 애니메이션 부드러움 확인",
+        "id": "18",
+        "title": "Instagram JSON Parser 모듈 구현",
+        "description": "web_profile_info API 응답 파싱 모듈 구현",
+        "details": "파일: backend/app/parsers/instagram_parser.py\n\n```python\nfrom typing import Dict, Any, List, Optional\nfrom datetime import datetime\n\nclass InstagramParser:\n    @staticmethod\n    def parse_profile(data: Dict[str, Any]) -> Dict[str, Any]:\n        \"\"\"\n        web_profile_info API 응답에서 프로필 데이터 추출\n        \"\"\"\n        user = data.get(\"data\", {}).get(\"user\", {})\n        \n        if not user:\n            raise ValueError(\"Invalid response: user data not found\")\n        \n        return {\n            \"username\": user.get(\"username\", \"\"),\n            \"full_name\": user.get(\"full_name\", \"\"),\n            \"biography\": user.get(\"biography\", \"\"),\n            \"followers\": user.get(\"edge_followed_by\", {}).get(\"count\", 0),\n            \"following\": user.get(\"edge_follow\", {}).get(\"count\", 0),\n            \"posts_count\": user.get(\"edge_owner_to_timeline_media\", {}).get(\"count\", 0),\n            \"is_private\": user.get(\"is_private\", False),\n            \"is_verified\": user.get(\"is_verified\", False),\n            \"profile_pic_url\": user.get(\"profile_pic_url_hd\") or user.get(\"profile_pic_url\", \"\"),\n            \"external_url\": user.get(\"external_url\", \"\"),\n        }\n    \n    @staticmethod\n    def parse_posts(data: Dict[str, Any], limit: int = 20) -> List[Dict[str, Any]]:\n        \"\"\"\n        프로필 응답에서 게시물 데이터 추출\n        \"\"\"\n        user = data.get(\"data\", {}).get(\"user\", {})\n        edges = user.get(\"edge_owner_to_timeline_media\", {}).get(\"edges\", [])\n        \n        posts = []\n        for edge in edges[:limit]:\n            node = edge.get(\"node\", {})\n            \n            # 캡션 추출\n            caption_edges = node.get(\"edge_media_to_caption\", {}).get(\"edges\", [])\n            caption = caption_edges[0].get(\"node\", {}).get(\"text\", \"\") if caption_edges else \"\"\n            \n            post_data = {\n                \"post_id\": node.get(\"id\", \"\"),\n                \"shortcode\": node.get(\"shortcode\", \"\"),\n                \"caption\": caption,\n                \"likes\": node.get(\"edge_liked_by\", {}).get(\"count\", 0),\n                \"comments\": node.get(\"edge_media_to_comment\", {}).get(\"count\", 0),\n                \"media_url\": node.get(\"display_url\", \"\"),\n                \"timestamp\": datetime.fromtimestamp(node.get(\"taken_at_timestamp\", 0)),\n                \"post_type\": \"video\" if node.get(\"is_video\") else \"image\",\n                \"hashtags\": InstagramParser._extract_hashtags(caption),\n                \"mentions\": InstagramParser._extract_mentions(caption),\n            }\n            posts.append(post_data)\n        \n        return posts\n    \n    @staticmethod\n    def _extract_hashtags(text: str) -> List[str]:\n        import re\n        return [tag.lower() for tag in re.findall(r'#(\\w+)', text or \"\")]\n    \n    @staticmethod\n    def _extract_mentions(text: str) -> List[str]:\n        import re\n        return [mention.lower() for mention in re.findall(r'@(\\w+)', text or \"\")]\n\n# 싱글톤 인스턴스\nparser = InstagramParser()\n```\n\n추가 필요 파일:\n- backend/app/parsers/__init__.py 생성",
+        "testStrategy": "1. 샘플 JSON 응답으로 파싱 테스트\n2. 모든 필드가 올바르게 추출되는지 확인\n3. 빈 응답/잘못된 응답 처리 테스트",
         "priority": "high",
         "dependencies": [
-          "1"
+          "17"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-02-21T07:37:10.796Z"
+        "updatedAt": "2026-03-10T06:31:49.038Z"
       },
       {
-        "id": "4",
-        "title": "FastAPI 백엔드 기본 구조 및 API 엔드포인트 설정",
-        "description": "Python FastAPI 기본 앱 구조 설정 및 핵심 API 엔드포인트 정의",
-        "details": "1. FastAPI 앱 초기화 (backend/app/main.py)\n```python\nfrom fastapi import FastAPI\nfrom fastapi.middleware.cors import CORSMiddleware\n\napp = FastAPI(title=\"itsmegram API\", version=\"1.0.0\")\n\napp.add_middleware(\n    CORSMiddleware,\n    allow_origins=[\"http://localhost:3000\"],\n    allow_credentials=True,\n    allow_methods=[\"*\"],\n    allow_headers=[\"*\"],\n)\n```\n\n2. API 라우터 구조 설정\n```\nbackend/app/routers/\n├── __init__.py\n├── instagram.py    # 인스타그램 데이터 수집\n├── analysis.py     # AI 분석\n└── report.py       # 리포트 생성\n```\n\n3. 핵심 엔드포인트 정의:\n```python\n# POST /api/v1/analyze\n# Request: { \"username\": \"string\" }\n# Response: { \"report_id\": \"uuid\", \"status\": \"processing\" }\n\n# GET /api/v1/report/{report_id}\n# Response: { \"report_data\": {...}, \"image_url\": \"...\" }\n\n# GET /api/v1/health\n# Health check endpoint\n```\n\n4. Pydantic 모델 정의\n```python\nclass AnalyzeRequest(BaseModel):\n    username: str = Field(..., pattern=r'^[a-zA-Z0-9._]{1,30}$')\n\nclass AnalyzeResponse(BaseModel):\n    report_id: str\n    status: str\n```\n\n5. Rate limiting 설정 (slowapi 활용)",
-        "testStrategy": "1. /api/v1/health 엔드포인트 200 응답 확인\n2. CORS 설정 테스트 (프론트엔드에서 API 호출)\n3. 입력값 검증 테스트 (잘못된 username 형식 거부 확인)",
+        "id": "19",
+        "title": "Rate Limiter 모듈 구현 (Adaptive Token Bucket)",
+        "description": "Instagram 요청 속도 제어를 위한 Adaptive Rate Limiter 구현",
+        "details": "파일: backend/app/services/rate_limiter.py\n\n```python\nimport asyncio\nimport random\nimport time\nfrom typing import Optional\nimport structlog\n\nlogger = structlog.get_logger()\n\nclass AdaptiveRateLimiter:\n    \"\"\"\n    Adaptive Token Bucket Rate Limiter\n    - Instagram 응답에 따라 동적으로 조정\n    - Jitter 추가로 봇 탐지 회피\n    \"\"\"\n    \n    def __init__(\n        self,\n        tokens_per_second: float = 5.0,\n        bucket_size: int = 10,\n        jitter_range: tuple = (0.1, 0.3)\n    ):\n        self.tokens_per_second = tokens_per_second\n        self.bucket_size = bucket_size\n        self.jitter_range = jitter_range\n        \n        self.tokens = bucket_size\n        self.last_update = time.monotonic()\n        self.lock = asyncio.Lock()\n        \n        # Adaptive 조정을 위한 통계\n        self.consecutive_successes = 0\n        self.consecutive_failures = 0\n    \n    async def acquire(self) -> None:\n        \"\"\"토큰 획득 (없으면 대기)\"\"\"\n        async with self.lock:\n            now = time.monotonic()\n            elapsed = now - self.last_update\n            \n            # 토큰 보충\n            self.tokens = min(\n                self.bucket_size,\n                self.tokens + elapsed * self.tokens_per_second\n            )\n            self.last_update = now\n            \n            if self.tokens < 1:\n                # 토큰 부족: 대기 시간 계산\n                wait_time = (1 - self.tokens) / self.tokens_per_second\n                jitter = random.uniform(*self.jitter_range)\n                total_wait = wait_time + jitter\n                \n                logger.debug(\"rate_limiter_waiting\", wait_time=total_wait)\n                await asyncio.sleep(total_wait)\n                \n                # 토큰 재계산\n                self.tokens = 1\n            \n            self.tokens -= 1\n    \n    def report_success(self) -> None:\n        \"\"\"성공 시 호출 - 속도 점진적 증가\"\"\"\n        self.consecutive_successes += 1\n        self.consecutive_failures = 0\n        \n        if self.consecutive_successes > 10:\n            self.tokens_per_second = min(10, self.tokens_per_second + 0.5)\n            self.bucket_size = min(20, self.bucket_size + 1)\n            logger.info(\"rate_limiter_increased\", tps=self.tokens_per_second)\n            self.consecutive_successes = 0\n    \n    def report_rate_limited(self) -> None:\n        \"\"\"429 응답 시 호출 - 속도 감소\"\"\"\n        self.consecutive_failures += 1\n        self.consecutive_successes = 0\n        \n        self.tokens_per_second = max(1, self.tokens_per_second - 1)\n        self.bucket_size = max(5, self.bucket_size - 2)\n        \n        logger.warning(\n            \"rate_limiter_decreased\",\n            tps=self.tokens_per_second,\n            failures=self.consecutive_failures\n        )\n    \n    def get_status(self) -> dict:\n        \"\"\"현재 상태 반환\"\"\"\n        return {\n            \"tokens_per_second\": self.tokens_per_second,\n            \"bucket_size\": self.bucket_size,\n            \"available_tokens\": self.tokens,\n            \"consecutive_successes\": self.consecutive_successes,\n            \"consecutive_failures\": self.consecutive_failures,\n        }\n\n# 싱글톤 인스턴스 (전역 Instagram 요청 제한)\ninstagram_rate_limiter = AdaptiveRateLimiter()\n```",
+        "testStrategy": "1. 단위 테스트: 토큰 소모 및 보충 로직 테스트\n2. 동시 요청 시 올바른 대기 동작 확인\n3. Adaptive 조정 로직 테스트",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-03-10T06:32:21.737Z"
+      },
+      {
+        "id": "20",
+        "title": "Queue Manager 모듈 구현 (asyncio.Queue 기반)",
+        "description": "요청 큐잉 및 순차 처리를 위한 Queue Manager 구현",
+        "details": "파일: backend/app/services/queue_manager.py\n\n```python\nimport asyncio\nimport uuid\nfrom datetime import datetime\nfrom typing import Optional, Dict, Any, Callable\nfrom enum import Enum\nimport structlog\n\nlogger = structlog.get_logger()\n\nclass QueueStatus(str, Enum):\n    PENDING = \"pending\"\n    PROCESSING = \"processing\"\n    COMPLETED = \"completed\"\n    FAILED = \"failed\"\n    REJECTED = \"rejected\"\n\nclass QueueManager:\n    \"\"\"\n    인메모리 요청 큐 관리자\n    - asyncio.Queue 기반\n    - 최대 100개 큐 크기 제한\n    \"\"\"\n    \n    def __init__(\n        self,\n        max_concurrent: int = 5,\n        max_queue_size: int = 100,\n        requests_per_second: float = 5.0\n    ):\n        self.max_concurrent = max_concurrent\n        self.max_queue_size = max_queue_size\n        self.requests_per_second = requests_per_second\n        \n        self.queue = asyncio.Queue(maxsize=max_queue_size)\n        self.jobs: Dict[str, Dict[str, Any]] = {}\n        self.semaphore = asyncio.Semaphore(max_concurrent)\n        self.processing = False\n        \n    async def start(self) -> None:\n        \"\"\"큐 프로세서 시작\"\"\"\n        if not self.processing:\n            self.processing = True\n            asyncio.create_task(self._process_queue())\n            logger.info(\"queue_manager_started\")\n    \n    async def stop(self) -> None:\n        \"\"\"큐 프로세서 중지\"\"\"\n        self.processing = False\n        logger.info(\"queue_manager_stopped\")\n    \n    async def enqueue(\n        self,\n        username: str,\n        task_func: Callable,\n        *args,\n        **kwargs\n    ) -> Optional[str]:\n        \"\"\"\n        작업을 큐에 등록\n        Returns: job_id (성공), None (큐 초과)\n        \"\"\"\n        if self.queue.qsize() >= self.max_queue_size:\n            logger.warning(\"queue_full\", username=username)\n            return None\n        \n        job_id = f\"job_{uuid.uuid4().hex[:12]}\"\n        \n        self.jobs[job_id] = {\n            \"id\": job_id,\n            \"username\": username,\n            \"status\": QueueStatus.PENDING,\n            \"created_at\": datetime.utcnow(),\n            \"started_at\": None,\n            \"completed_at\": None,\n            \"result\": None,\n            \"error\": None,\n            \"position\": self.queue.qsize() + 1,\n        }\n        \n        await self.queue.put({\n            \"job_id\": job_id,\n            \"task_func\": task_func,\n            \"args\": args,\n            \"kwargs\": kwargs,\n        })\n        \n        logger.info(\"job_enqueued\", job_id=job_id, username=username)\n        return job_id\n    \n    async def _process_queue(self) -> None:\n        \"\"\"큐 처리 루프\"\"\"\n        while self.processing:\n            try:\n                item = await asyncio.wait_for(self.queue.get(), timeout=1.0)\n                \n                async with self.semaphore:\n                    job_id = item[\"job_id\"]\n                    self.jobs[job_id][\"status\"] = QueueStatus.PROCESSING\n                    self.jobs[job_id][\"started_at\"] = datetime.utcnow()\n                    \n                    try:\n                        result = await item[\"task_func\"](\n                            *item[\"args\"],\n                            **item[\"kwargs\"]\n                        )\n                        self.jobs[job_id][\"status\"] = QueueStatus.COMPLETED\n                        self.jobs[job_id][\"result\"] = result\n                        \n                    except Exception as e:\n                        self.jobs[job_id][\"status\"] = QueueStatus.FAILED\n                        self.jobs[job_id][\"error\"] = str(e)\n                        logger.error(\"job_failed\", job_id=job_id, error=str(e))\n                    \n                    finally:\n                        self.jobs[job_id][\"completed_at\"] = datetime.utcnow()\n                        self.queue.task_done()\n                        \n                    # Rate limiting\n                    await asyncio.sleep(1 / self.requests_per_second)\n                    \n            except asyncio.TimeoutError:\n                continue\n            except Exception as e:\n                logger.error(\"queue_processor_error\", error=str(e))\n    \n    def get_status(self, job_id: str) -> Optional[Dict[str, Any]]:\n        \"\"\"작업 상태 조회\"\"\"\n        job = self.jobs.get(job_id)\n        if not job:\n            return None\n        \n        # 현재 대기열 위치 계산\n        if job[\"status\"] == QueueStatus.PENDING:\n            position = self._get_queue_position(job_id)\n            job_copy = job.copy()\n            job_copy[\"queue_position\"] = position\n            job_copy[\"estimated_wait_seconds\"] = position * (1 / self.requests_per_second)\n            return job_copy\n        \n        return job\n    \n    def _get_queue_position(self, job_id: str) -> int:\n        \"\"\"큐 내 위치 계산\"\"\"\n        position = 1\n        for item in self.queue._queue:\n            if item[\"job_id\"] == job_id:\n                return position\n            position += 1\n        return 0\n    \n    def get_queue_stats(self) -> Dict[str, Any]:\n        \"\"\"전체 큐 통계\"\"\"\n        statuses = [j[\"status\"] for j in self.jobs.values()]\n        return {\n            \"total_pending\": statuses.count(QueueStatus.PENDING),\n            \"total_processing\": statuses.count(QueueStatus.PROCESSING),\n            \"total_completed\": statuses.count(QueueStatus.COMPLETED),\n            \"total_failed\": statuses.count(QueueStatus.FAILED),\n            \"queue_size\": self.queue.qsize(),\n            \"processing_rate\": f\"{self.requests_per_second}/sec\",\n        }\n    \n    def should_queue(self) -> bool:\n        \"\"\"현재 큐가 필요한 상황인지 판단\"\"\"\n        return self.queue.qsize() > 10\n\n# 싱글톤 인스턴스\nqueue_manager = QueueManager()\n```",
+        "testStrategy": "1. 동시에 여러 작업 등록 시 큐 동작 테스트\n2. max_queue_size 초과 시 거부 테스트\n3. 작업 완료/실패 상태 전환 테스트\n4. 대기열 위치 계산 정확성 테스트",
         "priority": "high",
         "dependencies": [
-          "1"
+          "19"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-03-05T09:10:22.588Z"
+        "updatedAt": "2026-03-10T06:33:51.275Z"
       },
       {
-        "id": "5",
-        "title": "인스타그램 데이터 수집 서비스 구현",
-        "description": "공개 인스타그램 계정의 프로필 및 게시물 데이터 수집 기능 개발",
-        "details": "1. Instagram Basic Display API 또는 웹 스크래핑 방식 선택\n- 권장: instagram-scraper 또는 instaloid 라이브러리 활용\n```python\n# backend/app/services/instagram_service.py\nfrom instaloader import Instaloader, Profile\n\nclass InstagramService:\n    def __init__(self):\n        self.loader = Instaloader()\n    \n    async def fetch_profile(self, username: str) -> dict:\n        profile = Profile.from_username(self.loader.context, username)\n        return {\n            \"username\": profile.username,\n            \"full_name\": profile.full_name,\n            \"biography\": profile.biography,\n            \"followers\": profile.followers,\n            \"following\": profile.followees,\n            \"posts_count\": profile.mediacount,\n            \"is_private\": profile.is_private,\n            \"profile_pic_url\": profile.profile_pic_url,\n        }\n    \n    async def fetch_posts(self, username: str, limit: int = 20) -> list:\n        # 최근 게시물 limit개 수집\n        # 각 게시물: caption, likes, comments, media_url, hashtags, timestamp\n```\n\n2. 데이터 모델 정의\n```python\nclass InstagramData(BaseModel):\n    profile: ProfileData\n    posts: List[PostData]\n    collected_at: datetime\n```\n\n3. 비공개 계정 체크 로직\n```python\nif profile.is_private:\n    raise HTTPException(400, \"비공개 계정은 분석할 수 없습니다\")\n```\n\n4. 에러 핸들링\n- 계정 없음 (404)\n- 비공개 계정 (400)\n- API 제한/차단 (429)\n- 서버 에러 (500)",
-        "testStrategy": "1. 공개 계정 username으로 데이터 수집 테스트\n2. 비공개 계정 요청 시 적절한 에러 반환 확인\n3. 존재하지 않는 계정 에러 처리 확인\n4. 수집된 데이터 구조 검증",
+        "id": "21",
+        "title": "Instagram Service 완전 재작성 (Instaloader 제거)",
+        "description": "기존 instagram_service.py를 HTTP 기반으로 완전 재작성",
+        "details": "파일: backend/app/services/instagram_service.py (완전 교체)\n\n```python\n\"\"\"\nitsmegram v2.0 - Instagram 데이터 수집 서비스\nHTTP 기반 직접 요청으로 Instaloader 대체\n\"\"\"\n\nimport asyncio\nfrom datetime import datetime\nfrom typing import List, Optional, Dict, Any\n\nfrom app.models.schemas import ProfileData, PostData, InstagramData\nfrom app.services.cache_service import cache_service\nfrom app.services.rate_limiter import instagram_rate_limiter\nfrom app.clients.http_client import http_client\nfrom app.parsers.instagram_parser import parser\nfrom app.utils.exceptions import (\n    InstagramServiceError,\n    ProfileNotFoundError,\n    PrivateAccountError,\n    RateLimitError,\n)\nimport structlog\n\nlogger = structlog.get_logger()\n\n\nclass InstagramService:\n    \"\"\"\n    Instagram 데이터 수집 서비스 v2.0\n    - HTTP 기반 직접 요청\n    - Rate Limiting 지원\n    - 캐싱 지원\n    \"\"\"\n\n    def __init__(self):\n        self._client = http_client\n        self._parser = parser\n        self._rate_limiter = instagram_rate_limiter\n\n    async def fetch_profile(self, username: str, use_cache: bool = True) -> ProfileData:\n        \"\"\"인스타그램 프로필 정보 수집\"\"\"\n        # 캐시 확인\n        if use_cache:\n            cached = await cache_service.get_cached_profile(username)\n            if cached:\n                logger.info(\"profile_cache_hit\", username=username)\n                return ProfileData(**cached)\n\n        # Rate Limit 적용\n        await self._rate_limiter.acquire()\n\n        try:\n            # HTTP 요청\n            response_data = await self._client.fetch_profile(username)\n            \n            # 파싱\n            profile_dict = self._parser.parse_profile(response_data)\n            \n            # 비공개 계정 체크\n            if profile_dict.get(\"is_private\"):\n                raise PrivateAccountError(username)\n            \n            profile_data = ProfileData(**profile_dict)\n            \n            # 성공 보고 (adaptive rate limiting)\n            self._rate_limiter.report_success()\n            \n            # 캐시 저장\n            if use_cache:\n                await cache_service.cache_profile(\n                    username,\n                    profile_data.model_dump(),\n                    ttl=1800\n                )\n            \n            logger.info(\"profile_fetched\", username=username)\n            return profile_data\n\n        except ProfileNotFoundError:\n            raise\n        except PrivateAccountError:\n            raise\n        except RateLimitError:\n            self._rate_limiter.report_rate_limited()\n            raise\n        except Exception as e:\n            logger.error(\"profile_fetch_error\", username=username, error=str(e))\n            raise InstagramServiceError(f\"Failed to fetch profile: {str(e)}\")\n\n    async def fetch_posts(self, username: str, limit: int = 20, use_cache: bool = True) -> List[PostData]:\n        \"\"\"인스타그램 게시물 수집\"\"\"\n        limit = min(limit, 50)\n        \n        # 캐시 확인\n        if use_cache:\n            cached = await cache_service.get_cached_posts(username, limit)\n            if cached:\n                return [PostData(**post) for post in cached]\n\n        # Rate Limit 적용\n        await self._rate_limiter.acquire()\n\n        try:\n            # HTTP 요청 (프로필 API에서 게시물도 함께 제공)\n            response_data = await self._client.fetch_profile(username)\n            \n            # 파싱\n            posts_list = self._parser.parse_posts(response_data, limit)\n            posts_data = [PostData(**post) for post in posts_list]\n            \n            # 성공 보고\n            self._rate_limiter.report_success()\n            \n            # 캐시 저장\n            if use_cache and posts_data:\n                await cache_service.cache_posts(\n                    username,\n                    limit,\n                    [post.model_dump() for post in posts_data],\n                    ttl=1800\n                )\n            \n            logger.info(\"posts_fetched\", username=username, count=len(posts_data))\n            return posts_data\n\n        except Exception as e:\n            logger.error(\"posts_fetch_error\", username=username, error=str(e))\n            raise InstagramServiceError(f\"Failed to fetch posts: {str(e)}\")\n\n    async def fetch_full_data(\n        self,\n        username: str,\n        posts_limit: int = 20,\n        use_cache: bool = True\n    ) -> InstagramData:\n        \"\"\"프로필과 게시물 데이터를 한번에 수집\"\"\"\n        # 캐시 확인 (전체 데이터)\n        if use_cache:\n            cached = await cache_service.get_cached_analysis(username)\n            if cached:\n                return InstagramData(**cached)\n        \n        # 병렬 처리\n        profile, posts = await asyncio.gather(\n            self.fetch_profile(username, use_cache),\n            self.fetch_posts(username, posts_limit, use_cache)\n        )\n        \n        return InstagramData(\n            profile=profile,\n            posts=posts,\n            collected_at=datetime.utcnow(),\n        )\n\n    async def validate_username(self, username: str) -> Dict[str, Any]:\n        \"\"\"사용자명 유효성 검사 및 계정 존재 여부 확인\"\"\"\n        import re\n        \n        if not re.match(r'^[a-zA-Z0-9._]{1,30}$', username):\n            return {\n                \"username\": username,\n                \"is_valid\": False,\n                \"exists\": None,\n                \"is_private\": None,\n                \"message\": \"Invalid username format\",\n            }\n\n        try:\n            await self._rate_limiter.acquire()\n            response_data = await self._client.fetch_profile(username)\n            profile_dict = self._parser.parse_profile(response_data)\n            \n            return {\n                \"username\": username,\n                \"is_valid\": True,\n                \"exists\": True,\n                \"is_private\": profile_dict.get(\"is_private\", False),\n                \"message\": \"Account exists\",\n            }\n\n        except ProfileNotFoundError:\n            return {\n                \"username\": username,\n                \"is_valid\": True,\n                \"exists\": False,\n                \"is_private\": None,\n                \"message\": \"Account does not exist\",\n            }\n        except Exception as e:\n            return {\n                \"username\": username,\n                \"is_valid\": True,\n                \"exists\": None,\n                \"is_private\": None,\n                \"message\": f\"Error: {str(e)}\",\n            }\n\n    async def clear_cache(self, username: Optional[str] = None) -> bool:\n        \"\"\"캐시 삭제\"\"\"\n        try:\n            if username:\n                await cache_service.invalidate_profile(username)\n                await cache_service.invalidate_posts(username)\n            return True\n        except Exception as e:\n            logger.error(\"cache_clear_error\", error=str(e))\n            return False\n\n\n# 싱글톤 인스턴스\ninstagram_service = InstagramService()\n```",
+        "testStrategy": "1. 기존 테스트 케이스 모두 통과 확인\n2. 캐시 동작 확인\n3. Rate Limiter 통합 동작 확인\n4. 에러 처리 (404, 429, 403) 확인",
         "priority": "high",
         "dependencies": [
-          "4"
+          "17",
+          "18",
+          "19",
+          "20"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-03-05T09:22:19.157Z"
+        "updatedAt": "2026-03-10T06:39:15.602Z"
       },
       {
-        "id": "6",
-        "title": "AI 분석 엔진 구현 (Moonshot AI 연동)",
-        "description": "수집된 인스타그램 데이터를 Moonshot AI API로 분석하여 인사이트 추출",
-        "details": "1. Moonshot AI API 클라이언트 설정\n```python\n# backend/app/services/ai_service.py\nimport openai\n\nclass AIService:\n    def __init__(self):\n        self.client = openai.OpenAI(\n            api_key=os.getenv(\"MOONSHOT_API_KEY\"),\n            base_url=\"https://api.moonshot.cn/v1\"\n        )\n    \n    async def analyze_profile(self, instagram_data: dict) -> dict:\n        prompt = self._build_analysis_prompt(instagram_data)\n        \n        response = self.client.chat.completions.create(\n            model=\"moonshot-v1-8k\",\n            messages=[\n                {\"role\": \"system\", \"content\": \"당신은 인스타그램 계정 분석 전문가입니다.\"},\n                {\"role\": \"user\", \"content\": prompt}\n            ],\n            temperature=0.7,\n            response_format={\"type\": \"json_object\"}\n        )\n        \n        return json.loads(response.choices[0].message.content)\n```\n\n2. 분석 프롬프트 템플릿 구성\n```python\ndef _build_analysis_prompt(self, data: dict) -> str:\n    return f\"\"\"\n    다음 인스타그램 계정 데이터를 분석하여 JSON 형식으로 리포트를 생성해주세요:\n    \n    프로필 정보:\n    - 사용자명: {data['profile']['username']}\n    - 팔로워: {data['profile']['followers']}\n    - 소개: {data['profile']['biography']}\n    \n    최근 게시물 {len(data['posts'])}개:\n    {self._format_posts(data['posts'])}\n    \n    다음 항목을 포함해주세요:\n    {{\n        \"basic_metrics\": {{\"avg_likes\": number, \"engagement_rate\": number, \"post_type_ratio\": {{}}}},\n        \"content_tendency\": {{\"categories\": [], \"visual_style\": \"\", \"text_style\": \"\", \"hashtag_pattern\": []}},\n        \"lifestyle\": {{\"interests\": [], \"activity_pattern\": \"\", \"consumption\": []}},\n        \"personality\": {{\"extroversion\": \"\", \"expression_strength\": number, \"communication\": \"\"}},\n        \"network\": {{\"engagement_quality\": \"\", \"community_type\": \"\"}},\n        \"growth_potential\": {{\"trend\": \"\", \"consistency\": \"\", \"suggestions\": []}},\n        \"summary\": \"5-7줄 요약\"\n    }}\n    \"\"\"\n```\n\n3. 분석 결과 후처리\n- 수치 정규화\n- 한국어 텍스트 정제\n- 추정 표현 추가 (\"~로 보입니다\")",
-        "testStrategy": "1. 샘플 인스타그램 데이터로 AI 분석 API 호출 테스트\n2. 반환된 JSON 구조 검증 (모든 필드 존재 확인)\n3. 오류 상황 테스트 (API 키 오류, 타임아웃 등)\n4. 분석 결과 품질 검토 (추정 표현 사용, 요약 길이 등)",
-        "priority": "high",
-        "dependencies": [
-          "4",
-          "5"
-        ],
-        "status": "done",
-        "subtasks": [],
-        "updatedAt": "2026-03-05T09:34:46.672Z"
-      },
-      {
-        "id": "7",
-        "title": "리포트 데이터 구조 및 저장 시스템 구현",
-        "description": "AI 분석 결과를 구조화된 리포트로 변환하고 임시 저장",
-        "details": "1. 리포트 데이터 모델 정의\n```python\n# backend/app/models/report.py\nfrom pydantic import BaseModel\nfrom datetime import datetime\nfrom uuid import uuid4\n\nclass ReportSection(BaseModel):\n    title: str\n    icon: str\n    content: dict\n    \nclass Report(BaseModel):\n    id: str = Field(default_factory=lambda: str(uuid4()))\n    username: str\n    created_at: datetime = Field(default_factory=datetime.now)\n    expires_at: datetime  # 24시간 후 만료\n    \n    # 리포트 섹션들\n    basic_metrics: BasicMetricsSection\n    content_tendency: ContentTendencySection\n    lifestyle: LifestyleSection\n    personality: PersonalitySection\n    network: NetworkSection\n    growth_potential: GrowthPotentialSection\n    summary: str\n    \n    # 메타데이터\n    profile_image_url: str\n    collected_posts_count: int\n```\n\n2. 임시 저장소 구현 (Redis 권장, 또는 메모리 캐시)\n```python\n# backend/app/services/storage_service.py\nimport redis\n\nclass ReportStorage:\n    def __init__(self):\n        self.redis = redis.Redis(host='localhost', port=6379, db=0)\n    \n    async def save_report(self, report: Report) -> str:\n        report_json = report.model_dump_json()\n        self.redis.setex(\n            f\"report:{report.id}\",\n            timedelta(hours=24),\n            report_json\n        )\n        return report.id\n    \n    async def get_report(self, report_id: str) -> Optional[Report]:\n        data = self.redis.get(f\"report:{report_id}\")\n        if data:\n            return Report.model_validate_json(data)\n        return None\n```\n\n3. 개인정보 보호 정책 구현\n```python\nasync def cleanup_expired_reports(self):\n    # 만료된 리포트 자동 삭제 (Redis TTL 활용)\n    pass\n```",
-        "testStrategy": "1. 리포트 생성 및 저장 테스트\n2. 저장된 리포트 조회 테스트\n3. 만료 시간 경과 후 데이터 삭제 확인\n4. 동시성 테스트 (여러 리포트 동시 생성)",
-        "priority": "high",
-        "dependencies": [
-          "6"
-        ],
-        "status": "done",
-        "subtasks": [],
-        "updatedAt": "2026-03-05T10:09:41.584Z"
-      },
-      {
-        "id": "8",
-        "title": "리포트 결과 페이지 UI 개발",
-        "description": "AI 분석 결과를 시각적으로 표시하는 리포트 페이지 구현",
-        "details": "1. /report 페이지 구조 생성\n```tsx\napp/report/page.tsx          # report_id query param 처리\napp/report/[id]/page.tsx     # 특정 리포트 조회\n```\n\n2. 리포트 섹션별 컴포넌트 구현:\n```tsx\ncomponents/report/\n├── ReportHeader.tsx         # 프로필 정보 + 기본 지표\n├── ContentTendencyCard.tsx  # 콘텐츠 성향\n├── LifestyleCard.tsx        # 라이프스타일\n├── PersonalityCard.tsx      # 성격 분석\n├── NetworkCard.tsx          # 네트워크 특징\n├── GrowthPotentialCard.tsx  # 성장 가능성\n└── SummarySection.tsx       # 핵심 요약\n```\n\n3. 각 섹션 UI 구현 예시:\n```tsx\n// ReportHeader.tsx\nexport function ReportHeader({ profile, basicMetrics }) {\n  return (\n    <div className=\"bg-gradient-to-r from-purple-500 to-pink-500 p-6 rounded-2xl\">\n      <div className=\"flex items-center gap-4\">\n        <img src={profile.profile_pic_url} className=\"w-20 h-20 rounded-full\" />\n        <div>\n          <h2 className=\"text-2xl font-bold\">@{profile.username}</h2>\n          <p className=\"text-white/80\">{profile.full_name}</p>\n        </div>\n      </div>\n      <div className=\"grid grid-cols-3 gap-4 mt-4\">\n        <MetricBadge label=\"평균 좋아요\" value={basicMetrics.avg_likes} />\n        <MetricBadge label=\"참여율\" value={`${basicMetrics.engagement_rate}%`} />\n        <MetricBadge label=\"게시물\" value={profile.posts_count} />\n      </div>\n    </div>\n  );\n}\n```\n\n4. 로딩 상태 및 에러 핸들링\n```tsx\n// 로딩 스켈레톤\n// 에러 상태 (리포트 만료, 분석 실패 등)\n```",
-        "testStrategy": "1. 샘플 리포트 데이터로 UI 렌더링 테스트\n2. 로딩 상태 UI 확인\n3. 만료된 리포트 에러 메시지 확인\n4. 모바일/데스크톱 반응형 테스트",
-        "priority": "high",
-        "dependencies": [
-          "2",
-          "7"
-        ],
-        "status": "done",
-        "subtasks": [],
-        "updatedAt": "2026-03-05T10:24:34.562Z"
-      },
-      {
-        "id": "9",
-        "title": "리포트 이미지 생성 서비스 구현",
-        "description": "분석 결과를 인스타그램 스토리 형식(1080x1920)의 이미지로 렌더링",
-        "details": "1. 서버사이드 이미지 생성 방식 선택 (Puppeteer 또는 Pillow)\n```python\n# backend/app/services/image_service.py\nfrom playwright.async_api import async_playwright\n\nclass ReportImageService:\n    async def generate_report_image(self, report: Report) -> bytes:\n        # HTML 템플릿 렌더링\n        html_content = self._render_template(report)\n        \n        async with async_playwright() as p:\n            browser = await p.chromium.launch()\n            page = await browser.new_page()\n            await page.set_viewport_size({\"width\": 1080, \"height\": 1920})\n            await page.set_content(html_content)\n            \n            # 스토리 형식 스크린샷\n            screenshot = await page.screenshot({\n                \"full_page\": True,\n                \"type\": \"png\"\n            })\n            await browser.close()\n            return screenshot\n```\n\n2. HTML 템플릿 구성 (Jinja2)\n```html\n<!-- backend/templates/report_story.html -->\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body {\n      width: 1080px;\n      height: 1920px;\n      background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);\n      font-family: 'Pretendard', sans-serif;\n    }\n    .report-container {\n      padding: 60px;\n      color: white;\n    }\n    /* 섹션별 스타일 */\n  </style>\n</head>\n<body>\n  <div class=\"report-container\">\n    <header><!-- 프로필 정보 --></header>\n    <section><!-- 기본 지표 --></section>\n    <section><!-- 콘텐츠 성향 --></section>\n    <!-- ... -->\n  </div>\n</body>\n</html>\n```\n\n3. 이미지 저장 및 CDN 업로드 (선택사항)\n```python\n# 생성된 이미지를 S3/Cloudflare R2에 업로드\nasync def upload_image(self, image_bytes: bytes, report_id: str) -> str:\n    # 업로드 로직\n    return image_url\n```",
-        "testStrategy": "1. 샘플 리포트로 이미지 생성 테스트\n2. 생성된 이미지 해상도 확인 (1080x1920)\n3. 한글 폰트 렌더링 확인\n4. 이미지 파일 크기 최적화 확인",
-        "priority": "high",
-        "dependencies": [
-          "7"
-        ],
-        "status": "done",
-        "subtasks": [],
-        "updatedAt": "2026-03-05T10:36:23.590Z"
-      },
-      {
-        "id": "10",
-        "title": "리포트 이미지 다운로드 기능 구현",
-        "description": "생성된 리포트 이미지를 PNG/JPG로 다운로드하는 기능",
-        "details": "1. 다운로드 API 엔드포인트\n```python\n# backend/app/routers/report.py\n@router.get(\"/report/{report_id}/download\")\nasync def download_report(report_id: str, format: str = \"png\"):\n    report = await storage.get_report(report_id)\n    if not report:\n        raise HTTPException(404, \"리포트를 찾을 수 없습니다\")\n    \n    image_bytes = await image_service.generate_report_image(report)\n    \n    media_type = \"image/png\" if format == \"png\" else \"image/jpeg\"\n    filename = f\"itsmegram_{report.username}_report.{format}\"\n    \n    return StreamingResponse(\n        io.BytesIO(image_bytes),\n        media_type=media_type,\n        headers={\"Content-Disposition\": f\"attachment; filename={filename}\"}\n    )\n```\n\n2. 프론트엔드 다운로드 버튼\n```tsx\n// components/report/DownloadButton.tsx\nexport function DownloadButton({ reportId }) {\n  const handleDownload = async () => {\n    const response = await fetch(`/api/v1/report/${reportId}/download?format=png`);\n    const blob = await response.blob();\n    const url = window.URL.createObjectURL(blob);\n    const a = document.createElement('a');\n    a.href = url;\n    a.download = `itsmegram_report.png`;\n    a.click();\n  };\n  \n  return (\n    <button onClick={handleDownload} className=\"...\">\n      <DownloadIcon /> 이미지 저장\n    </button>\n  );\n}\n```\n\n3. 다운로드 진행 상태 표시 (선택사항)\n- 로딩 스피너\n- 다운로드 완료 알림",
-        "testStrategy": "1. 다운로드 API 호출 테스트\n2. 다운로드된 이미지 파일 확인\n3. PNG/JPG 두 형식 모두 테스트\n4. 대용량 이미지 다운로드 성능 테스트",
+        "id": "22",
+        "title": "Logger 설정에서 Instaloader 로거 제거",
+        "description": "backend/app/utils/logger.py에서 instaloader 로거 설정 제거",
+        "details": "파일: backend/app/utils/logger.py 수정 (라인 97)\n\n```python\n# 외부 라이브러리 로깅 레벨 조정 (너무 많은 로그 방지)\nlogging.getLogger(\"urllib3\").setLevel(logging.WARNING)\nlogging.getLogger(\"httpx\").setLevel(logging.WARNING)\nlogging.getLogger(\"httpcore\").setLevel(logging.WARNING)\n# logging.getLogger(\"instaloader\").setLevel(logging.WARNING)  # 제거됨\n\n# curl_cffi 로거 추가 (필요시)\nlogging.getLogger(\"curl_cffi\").setLevel(logging.WARNING)\n```",
+        "testStrategy": "애플리케이션 시작 시 로거 초기화 오류 없는지 확인",
         "priority": "medium",
         "dependencies": [
-          "8",
-          "9"
+          "16"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-03-05T11:14:18.493Z"
+        "updatedAt": "2026-03-10T06:39:36.953Z"
       },
       {
-        "id": "11",
-        "title": "인스타그램 스토리 공유 기능 구현",
-        "description": "생성된 리포트를 인스타그램 스토리로 직접 공유하는 기능",
-        "details": "1. Instagram Share API 활용 (Web Share API + Instagram)\n```tsx\n// components/report/ShareButton.tsx\nexport function ShareToStoryButton({ imageUrl }) {\n  const handleShare = async () => {\n    // 모바일에서 Instagram 앱으로 공유\n    if (navigator.share) {\n      const response = await fetch(imageUrl);\n      const blob = await response.blob();\n      const file = new File([blob], 'itsmegram-report.png', { type: 'image/png' });\n      \n      await navigator.share({\n        files: [file],\n        title: 'My Instagram Analysis',\n        text: 'itsmegram으로 분석한 나의 인스타그램 리포트!'\n      });\n    } else {\n      // 폴백: 이미지 다운로드 후 안내\n      alert('이미지가 저장되었습니다. Instagram 스토리에 직접 업로드해주세요!');\n    }\n  };\n  \n  return (\n    <button onClick={handleShare} className=\"instagram-gradient ...\">\n      <InstagramIcon /> 스토리로 공유\n    </button>\n  );\n}\n```\n\n2. Instagram deeplink 활용 (모바일)\n```\ninstagram-stories://share?source_application=itsmegram\n```\n\n3. 공유 가이드 모달\n- Instagram 앱이 없는 경우 안내\n- 데스크톱 사용자용 안내 (QR 코드 등)\n\n4. 공유 트래킹\n```python\n# 공유 이벤트 로깅\nasync def log_share_event(report_id: str, platform: str):\n    await analytics.track(\"report_shared\", {\n        \"report_id\": report_id,\n        \"platform\": platform,\n        \"timestamp\": datetime.now()\n    })\n```",
-        "testStrategy": "1. 모바일 기기에서 공유 기능 테스트\n2. 데스크톱 브라우저 폴백 동작 확인\n3. 공유된 이미지 품질 확인\n4. 공유 이벤트 로깅 확인",
+        "id": "23",
+        "title": "Queue 관련 API 엔드포인트 구현",
+        "description": "큐 상태 조회 및 작업 상태 확인용 API 엔드포인트 추가",
+        "details": "파일: backend/app/routers/queue.py (신규)\n\n```python\nfrom fastapi import APIRouter, HTTPException\nfrom typing import Optional\n\nfrom app.services.queue_manager import queue_manager\n\nrouter = APIRouter(prefix=\"/queue\", tags=[\"queue\"])\n\n@router.get(\"/{job_id}/status\")\nasync def get_job_status(job_id: str):\n    \"\"\"작업 상태 조회\"\"\"\n    status = queue_manager.get_status(job_id)\n    if not status:\n        raise HTTPException(status_code=404, detail=\"Job not found\")\n    return status\n\n@router.get(\"/status\")\nasync def get_queue_status():\n    \"\"\"전체 큐 상태 조회\"\"\"\n    return queue_manager.get_queue_stats()\n```\n\n파일: backend/app/main.py에 라우터 등록 추가\n\n```python\nfrom app.routers import queue\n\napp.include_router(queue.router, prefix=\"/api/v1\")\n```",
+        "testStrategy": "1. GET /api/v1/queue/{job_id}/status 테스트\n2. GET /api/v1/queue/status 테스트\n3. 존재하지 않는 job_id로 404 응답 테스트",
         "priority": "medium",
         "dependencies": [
-          "9"
+          "20"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-03-05T11:22:18.872Z"
+        "updatedAt": "2026-03-10T06:40:12.944Z"
       },
       {
-        "id": "12",
-        "title": "보안 및 Rate Limiting 구현",
-        "description": "API 보안 강화 및 요청 제한 설정",
-        "details": "1. Rate Limiting 구현 (slowapi)\n```python\n# backend/app/main.py\nfrom slowapi import Limiter\nfrom slowapi.util import get_remote_address\n\nlimiter = Limiter(key_func=get_remote_address)\napp = FastAPI()\napp.state.limiter = limiter\n\n# 분석 요청: IP당 5회/시간\n@router.post(\"/analyze\")\n@limiter.limit(\"5/hour\")\nasync def analyze(request: Request, data: AnalyzeRequest):\n    ...\n```\n\n2. 입력값 검증 강화\n```python\nfrom pydantic import Field, validator\n\nclass AnalyzeRequest(BaseModel):\n    username: str = Field(\n        ...,\n        min_length=1,\n        max_length=30,\n        pattern=r'^[a-zA-Z0-9._]+$'\n    )\n    \n    @validator('username')\n    def validate_username(cls, v):\n        reserved = ['admin', 'api', 'report', 'marketing']\n        if v.lower() in reserved:\n            raise ValueError('사용할 수 없는 사용자명입니다')\n        return v.lower()\n```\n\n3. 환경 변수 관리\n```python\n# backend/app/config.py\nfrom pydantic_settings import BaseSettings\n\nclass Settings(BaseSettings):\n    moonshot_api_key: str\n    cors_origins: list[str] = [\"http://localhost:3000\"]\n    rate_limit: str = \"5/hour\"\n    \n    class Config:\n        env_file = \".env\"\n```\n\n4. 보안 헤더 설정\n```python\nfrom fastapi.middleware.trustedhost import TrustedHostMiddleware\nfrom fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware\n\napp.add_middleware(TrustedHostMiddleware, allowed_hosts=[\"itsmegram.com\"])\n# 프로덕션에서만 HTTPS 리다이렉트\n```",
-        "testStrategy": "1. Rate limit 초과 시 429 응답 확인\n2. 잘못된 입력값 거부 확인\n3. CORS 정책 위반 요청 차단 확인\n4. 환경 변수 누락 시 앱 시작 실패 확인",
+        "id": "24",
+        "title": "분석 API에 Queue 통합 및 진행 상태 개선",
+        "description": "POST /api/v1/analyze 엔드포인트에 Queue Manager 통합",
+        "details": "파일: backend/app/routers/analysis.py 수정\n\n```python\nfrom fastapi import APIRouter, HTTPException, BackgroundTasks\nfrom app.services.queue_manager import queue_manager, QueueStatus\nfrom app.services.instagram_service import instagram_service\nfrom app.services.ai_service import ai_service\nfrom app.services.report_service import report_service\n\nrouter = APIRouter()\n\n@router.post(\"/analyze\")\nasync def analyze_username(\n    request: AnalyzeRequest,\n    background_tasks: BackgroundTasks\n):\n    \"\"\"\n    Instagram 계정 분석 요청\n    - 큐가 필요한 경우: job_id 반환\n    - 큐가 필요 없는 경우: 즉시 처리\n    \"\"\"\n    username = request.username\n    \n    # 큐가 필요한 상황인지 판단\n    if queue_manager.should_queue():\n        # 큐에 등록\n        job_id = await queue_manager.enqueue(\n            username=username,\n            task_func=_process_analysis,\n            username=username\n        )\n        \n        if not job_id:\n            raise HTTPException(\n                status_code=503,\n                detail=\"Server is busy. Please try again later.\"\n            )\n        \n        return {\n            \"job_id\": job_id,\n            \"status\": QueueStatus.PENDING,\n            \"message\": \"Analysis queued\",\n            \"queue_position\": queue_manager.get_status(job_id)[\"queue_position\"]\n        }\n    \n    # 즉시 처리\n    try:\n        result = await _process_analysis(username)\n        return result\n    except Exception as e:\n        raise HTTPException(status_code=500, detail=str(e))\n\nasync def _process_analysis(username: str) -> dict:\n    \"\"\"실제 분석 처리\"\"\"\n    # 1. Instagram 데이터 수집\n    instagram_data = await instagram_service.fetch_full_data(username)\n    \n    # 2. AI 분석\n    analysis_result = await ai_service.analyze_profile(instagram_data)\n    \n    # 3. 리포트 생성\n    report = await report_service.create_report(username, analysis_result)\n    \n    return {\n        \"report_id\": report.id,\n        \"status\": \"completed\",\n        \"username\": username\n    }\n```",
+        "testStrategy": "1. 큐가 활성화될 때 job_id 반환 확인\n2. 큐가 비활성일 때 즉시 처리 확인\n3. 큐 초과 시 503 응답 확인",
         "priority": "high",
         "dependencies": [
-          "4"
+          "21",
+          "23"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-03-05T11:31:05.490Z"
+        "updatedAt": "2026-03-10T06:46:16.666Z"
       },
       {
-        "id": "13",
-        "title": "에러 핸들링 및 로깅 시스템 구현",
-        "description": "전체 애플리케이션의 에러 처리 및 로깅 인프라 구축",
-        "details": "1. 글로벌 에러 핸들러 (FastAPI)\n```python\n# backend/app/middleware/error_handler.py\nfrom fastapi import Request\nfrom fastapi.responses import JSONResponse\n\n@app.exception_handler(InstagramPrivateAccountError)\nasync def private_account_handler(request: Request, exc: InstagramPrivateAccountError):\n    return JSONResponse(\n        status_code=400,\n        content={\n            \"error\": \"PRIVATE_ACCOUNT\",\n            \"message\": \"비공개 계정은 분석할 수 없습니다\",\n            \"suggestion\": \"계정을 공개로 변경 후 다시 시도해주세요\"\n        }\n    )\n\n@app.exception_handler(InstagramNotFoundError)\nasync def not_found_handler(request: Request, exc: InstagramNotFoundError):\n    return JSONResponse(\n        status_code=404,\n        content={\n            \"error\": \"USER_NOT_FOUND\",\n            \"message\": \"해당 사용자를 찾을 수 없습니다\"\n        }\n    )\n\n@app.exception_handler(RateLimitExceeded)\nasync def rate_limit_handler(request: Request, exc: RateLimitExceeded):\n    return JSONResponse(\n        status_code=429,\n        content={\n            \"error\": \"RATE_LIMITED\",\n            \"message\": \"너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요\",\n            \"retry_after\": 3600\n        }\n    )\n```\n\n2. 구조화된 로깅\n```python\n# backend/app/utils/logger.py\nimport structlog\n\nlogger = structlog.get_logger()\n\n# 사용 예시\nlogger.info(\n    \"analysis_started\",\n    username=username,\n    client_ip=request.client.host,\n    timestamp=datetime.now()\n)\n```\n\n3. 프론트엔드 에러 바운더리\n```tsx\n// components/ErrorBoundary.tsx\nclass ErrorBoundary extends React.Component {\n  // 에러 캐치 및 폴백 UI\n}\n```",
-        "testStrategy": "1. 각 에러 상황별 적절한 응답 확인\n2. 로그 파일 생성 및 포맷 확인\n3. 프론트엔드 에러 바운더리 동작 확인\n4. 네트워크 에러 처리 확인",
+        "id": "25",
+        "title": "프론트엔드 Queue 상태 표시 컴포넌트 구현",
+        "description": "대기열 상태 및 예상 대기 시간을 표시하는 UI 컴포넌트 구현",
+        "details": "파일: frontend/components/QueueStatus.tsx\n\n```tsx\n\"use client\";\n\nimport { useEffect, useState } from \"react\";\n\ninterface QueueStatusProps {\n  jobId: string;\n  onComplete: (reportId: string) => void;\n}\n\ninterface QueueStatusData {\n  status: \"pending\" | \"processing\" | \"completed\" | \"failed\";\n  queue_position?: number;\n  estimated_wait_seconds?: number;\n  result?: { report_id: string };\n  error?: string;\n}\n\nexport function QueueStatus({ jobId, onComplete }: QueueStatusProps) {\n  const [status, setStatus] = useState<QueueStatusData | null>(null);\n  const [progress, setProgress] = useState(0);\n\n  useEffect(() => {\n    const pollStatus = async () => {\n      try {\n        const response = await fetch(`/api/v1/queue/${jobId}/status`);\n        const data = await response.json();\n        setStatus(data);\n\n        if (data.status === \"completed\" && data.result) {\n          onComplete(data.result.report_id);\n        } else if (data.status === \"failed\") {\n          // 에러 처리\n        }\n      } catch (error) {\n        console.error(\"Failed to fetch queue status:\", error);\n      }\n    };\n\n    const interval = setInterval(pollStatus, 2000);\n    pollStatus(); // Initial fetch\n\n    return () => clearInterval(interval);\n  }, [jobId, onComplete]);\n\n  if (!status) {\n    return <div>Loading...</div>;\n  }\n\n  const getStatusMessage = () => {\n    switch (status.status) {\n      case \"pending\":\n        return `대기열에서 대기 중... (${status.queue_position}번째)`;\n      case \"processing\":\n        return \"데이터 수집 중... (최대 1분 소요)\";\n      case \"completed\":\n        return \"분석 완료!\";\n      case \"failed\":\n        return `오류 발생: ${status.error}`;\n      default:\n        return \"처리 중...\";\n    }\n  };\n\n  return (\n    <div className=\"w-full max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg\">\n      <div className=\"mb-4\">\n        <div className=\"h-2 bg-gray-200 rounded-full overflow-hidden\">\n          <div\n            className=\"h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500\"\n            style={{ width: `${progress}%` }}\n          />\n        </div>\n      </div>\n      <p className=\"text-center text-gray-700\">{getStatusMessage()}</p>\n      {status.estimated_wait_seconds && (\n        <p className=\"text-center text-sm text-gray-500 mt-2\">\n          예상 대기 시간: {Math.ceil(status.estimated_wait_seconds / 60)}분\n        </p>\n      )}\n    </div>\n  );\n}\n```",
+        "testStrategy": "1. job_id로 폴링 동작 확인\n2. 상태 변경 시 UI 업데이트 확인\n3. 완료 시 onComplete 콜백 호출 확인",
         "priority": "medium",
         "dependencies": [
-          "4"
+          "23"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-03-05T11:40:39.391Z"
+        "updatedAt": "2026-03-10T06:47:46.373Z"
       },
       {
-        "id": "14",
-        "title": "성능 최적화 및 캐싱 구현",
-        "description": "애플리케이션 성능 개선 및 캐싱 전략 구현",
-        "details": "1. Redis 캐싱 레이어\n```python\n# backend/app/services/cache_service.py\nimport redis.asyncio as redis\n\nclass CacheService:\n    def __init__(self):\n        self.redis = redis.Redis(host='localhost', port=6379, db=0)\n    \n    async def get_cached_analysis(self, username: str) -> Optional[dict]:\n        # 같은 username 1시간 내 재요청 시 캐시된 결과 반환\n        cached = await self.redis.get(f\"analysis:{username}\")\n        if cached:\n            return json.loads(cached)\n        return None\n    \n    async def cache_analysis(self, username: str, data: dict, ttl: int = 3600):\n        await self.redis.setex(\n            f\"analysis:{username}\",\n            ttl,\n            json.dumps(data)\n        )\n```\n\n2. 프론트엔드 최적화\n```tsx\n// next.config.js\nmodule.exports = {\n  images: {\n    remotePatterns: [\n      { hostname: 'instagram.com' },\n      { hostname: 'cdninstagram.com' }\n    ],\n    formats: ['image/webp', 'image/avif']\n  },\n  compress: true,\n  productionBrowserSourceMaps: false\n}\n```\n\n3. API 응답 압축\n```python\nfrom fastapi.middleware.gzip import GZipMiddleware\n\napp.add_middleware(GZipMiddleware, minimum_size=1000)\n```\n\n4. 이미지 최적화\n- WebP 포맷 지원\n- 리포트 이미지 lazy loading\n- CDN 캐싱 헤더 설정",
-        "testStrategy": "1. 캐시 히트/미스 동작 확인\n2. Lighthouse 성능 점수 측정 (목표: 80+)\n3. API 응답 시간 측정 (p95 < 500ms)\n4. 이미지 로딩 속도 테스트",
+        "id": "26",
+        "title": "Circuit Breaker 패턴 구현",
+        "description": "연속 실패 시 Instagram 요청 일시 중단 메커니즘 구현",
+        "details": "파일: backend/app/services/circuit_breaker.py\n\n```python\nimport asyncio\nimport time\nfrom enum import Enum\nfrom typing import Optional, Callable, Any\nimport structlog\n\nlogger = structlog.get_logger()\n\nclass CircuitState(Enum):\n    CLOSED = \"closed\"      # 정상 동작\n    OPEN = \"open\"          # 차단 상태\n    HALF_OPEN = \"half_open\"  # 테스트 상태\n\nclass CircuitBreaker:\n    \"\"\"\n    Circuit Breaker 패턴 구현\n    - 연속 실패 시 요청 차단\n    - 일정 시간 후 자동 복구 시도\n    \"\"\"\n    \n    def __init__(\n        self,\n        failure_threshold: int = 10,\n        recovery_timeout: float = 300,  # 5분\n        half_open_max_calls: int = 3\n    ):\n        self.failure_threshold = failure_threshold\n        self.recovery_timeout = recovery_timeout\n        self.half_open_max_calls = half_open_max_calls\n        \n        self.state = CircuitState.CLOSED\n        self.failure_count = 0\n        self.success_count = 0\n        self.last_failure_time: Optional[float] = None\n        self.half_open_calls = 0\n        self._lock = asyncio.Lock()\n    \n    async def call(self, func: Callable, *args, **kwargs) -> Any:\n        \"\"\"Circuit breaker로 함수 호출\"\"\"\n        async with self._lock:\n            if self.state == CircuitState.OPEN:\n                if time.time() - self.last_failure_time >= self.recovery_timeout:\n                    self.state = CircuitState.HALF_OPEN\n                    self.half_open_calls = 0\n                    logger.info(\"circuit_breaker_half_open\")\n                else:\n                    raise CircuitBreakerOpenError(\"Service temporarily unavailable\")\n            \n            if self.state == CircuitState.HALF_OPEN:\n                if self.half_open_calls >= self.half_open_max_calls:\n                    raise CircuitBreakerOpenError(\"Circuit breaker half-open limit reached\")\n                self.half_open_calls += 1\n        \n        try:\n            result = await func(*args, **kwargs)\n            await self._on_success()\n            return result\n        except Exception as e:\n            await self._on_failure()\n            raise e\n    \n    async def _on_success(self) -> None:\n        async with self._lock:\n            self.failure_count = 0\n            \n            if self.state == CircuitState.HALF_OPEN:\n                self.success_count += 1\n                if self.success_count >= self.half_open_max_calls:\n                    self.state = CircuitState.CLOSED\n                    self.success_count = 0\n                    self.half_open_calls = 0\n                    logger.info(\"circuit_breaker_closed\")\n    \n    async def _on_failure(self) -> None:\n        async with self._lock:\n            self.failure_count += 1\n            self.last_failure_time = time.time()\n            \n            if self.failure_count >= self.failure_threshold:\n                self.state = CircuitState.OPEN\n                logger.warning(\"circuit_breaker_opened\", failures=self.failure_count)\n    \n    def get_status(self) -> dict:\n        return {\n            \"state\": self.state.value,\n            \"failure_count\": self.failure_count,\n            \"success_count\": self.success_count,\n            \"last_failure_time\": self.last_failure_time,\n        }\n\nclass CircuitBreakerOpenError(Exception):\n    pass\n\n# Instagram 서비스용 Circuit Breaker\ninstagram_circuit_breaker = CircuitBreaker()\n```\n\nHTTP Client에 통합:\n```python\n# http_client.py 수정\nasync def fetch_profile(self, username: str) -> Dict[str, Any]:\n    return await instagram_circuit_breaker.call(self._fetch_profile_internal, username)\n```",
+        "testStrategy": "1. 연속 실패 시 Circuit Open 테스트\n2. recovery_timeout 후 Half-Open 상태 전환 테스트\n3. Half-Open 상태에서 성공 시 Closed 전환 테스트",
         "priority": "medium",
         "dependencies": [
-          "7"
+          "17"
         ],
         "status": "done",
         "subtasks": [],
-        "updatedAt": "2026-03-05T11:53:11.380Z"
+        "updatedAt": "2026-03-10T06:51:33.897Z"
       },
       {
-        "id": "15",
-        "title": "분석 완료율 트래킹 및 분석 구현",
-        "description": "성공 지표 수집을 위한 분석 시스템 구현",
-        "details": "1. 이벤트 트래킹 시스템\n```python\n# backend/app/services/analytics_service.py\nclass AnalyticsService:\n    async def track_event(self, event_name: str, properties: dict):\n        event = {\n            \"event\": event_name,\n            \"properties\": properties,\n            \"timestamp\": datetime.now().isoformat(),\n            \"distinct_id\": properties.get(\"ip_hash\")  # 익명화\n        }\n        # 데이터베이스 또는 로그로 저장\n        await self.store_event(event)\n    \n    # 주요 이벤트\n    async def track_page_view(self, page: str, referrer: str):\n        await self.track_event(\"page_view\", {\"page\": page, \"referrer\": referrer})\n    \n    async def track_analysis_start(self, username: str):\n        await self.track_event(\"analysis_started\", {\"username_hash\": hash(username)})\n    \n    async def track_analysis_complete(self, username: str, duration: float):\n        await self.track_event(\"analysis_completed\", {\n            \"username_hash\": hash(username),\n            \"duration_seconds\": duration\n        })\n    \n    async def track_share(self, report_id: str, platform: str):\n        await self.track_event(\"report_shared\", {\"platform\": platform})\n```\n\n2. 대시보드 API (선택사항)\n```python\n@router.get(\"/analytics/dashboard\")\nasync def get_dashboard_stats():\n    return {\n        \"total_visits\": await analytics.get_count(\"page_view\"),\n        \"analysis_completion_rate\": await analytics.get_completion_rate(),\n        \"avg_processing_time\": await analytics.get_avg_duration(),\n        \"share_rate\": await analytics.get_share_rate()\n    }\n```\n\n3. 프론트엔드 트래킹\n```tsx\n// hooks/useAnalytics.ts\nexport function useAnalytics() {\n  const track = (event: string, props?: object) => {\n    fetch('/api/v1/analytics/track', {\n      method: 'POST',\n      body: JSON.stringify({ event, properties: props })\n    });\n  };\n  return { track };\n}\n```",
-        "testStrategy": "1. 각 이벤트가 정상적으로 기록되는지 확인\n2. 완료율 계산 정확성 검증\n3. 익명화된 데이터만 저장되는지 확인\n4. 대시보드 API 응답 확인",
+        "id": "27",
+        "title": "통합 테스트 및 부하 테스트",
+        "description": "전체 시스템 통합 테스트 및 300명 동시 요청 부하 테스트",
+        "details": "1. 통합 테스트 작성:\n```python\n# tests/integration/test_instagram_scraper.py\nimport pytest\nimport asyncio\nfrom app.services.instagram_service import instagram_service\n\n@pytest.mark.asyncio\nasync def test_fetch_profile_success():\n    result = await instagram_service.fetch_profile(\"instagram\")\n    assert result.username == \"instagram\"\n    assert result.followers > 0\n\n@pytest.mark.asyncio\nasync def test_fetch_profile_not_found():\n    with pytest.raises(ProfileNotFoundError):\n        await instagram_service.fetch_profile(\"thisuserdoesnotexist12345\")\n\n@pytest.mark.asyncio\nasync def test_rate_limiting():\n    start = time.time()\n    await asyncio.gather(*[\n        instagram_service.fetch_profile(\"instagram\", use_cache=False)\n        for _ in range(10)\n    ])\n    elapsed = time.time() - start\n    assert elapsed >= 1.8  # 5 req/sec 기준\n```\n\n2. 부하 테스트 (Locust 또는 Artillery):\n```yaml\n# load_test.yml\nconfig:\n  target: \"http://localhost:8000\"\n  phases:\n    - duration: 60\n      arrivalRate: 5  # 초당 5명\nscenarios:\n  - name: \"Analyze Instagram\"\n    requests:\n      - post:\n          url: \"/api/v1/analyze\"\n          json:\n            username: \"instagram\"\n```\n\n3. 실행:\n```bash\n# Locust\nlocust -f tests/load/locustfile.py --host=http://localhost:8000\n\n# Artillery\nartillery run load_test.yml\n```",
+        "testStrategy": "1. 통합 테스트 모두 통과\n2. 300명 동시 요청 시 큐 정상 동작 확인\n3. 평균 응답 시간 < 60초 확인\n4. 성공률 > 95% 확인",
+        "priority": "high",
+        "dependencies": [
+          "21",
+          "24"
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "28",
+        "title": "모니터링 및 메트릭 수집 구현",
+        "description": "큐 크기, 처리 시간, 에러율 등 핵심 메트릭 수집",
+        "details": "파일: backend/app/services/metrics_service.py\n\n```python\nimport time\nfrom typing import Dict, Any\nfrom dataclasses import dataclass, field\nfrom collections import deque\nimport structlog\n\nlogger = structlog.get_logger()\n\n@dataclass\nclass MetricsCollector:\n    \"\"\"간단한 인메모리 메트릭 수집기\"\"\"\n    \n    # 처리 시간 (최근 1000개)\n    processing_times: deque = field(default_factory=lambda: deque(maxlen=1000))\n    \n    # 에러 카운트\n    error_counts: Dict[str, int] = field(default_factory=dict)\n    \n    # 캐시 히트/미스\n    cache_hits: int = 0\n    cache_misses: int = 0\n    \n    # 요청 카운트\n    total_requests: int = 0\n    successful_requests: int = 0\n    \n    def record_processing_time(self, duration: float) -> None:\n        self.processing_times.append(duration)\n    \n    def record_error(self, error_type: str) -> None:\n        self.error_counts[error_type] = self.error_counts.get(error_type, 0) + 1\n    \n    def record_cache_hit(self) -> None:\n        self.cache_hits += 1\n    \n    def record_cache_miss(self) -> None:\n        self.cache_misses += 1\n    \n    def record_request(self, success: bool) -> None:\n        self.total_requests += 1\n        if success:\n            self.successful_requests += 1\n    \n    def get_metrics(self) -> Dict[str, Any]:\n        if not self.processing_times:\n            avg_time = 0\n        else:\n            avg_time = sum(self.processing_times) / len(self.processing_times)\n        \n        total_cache = self.cache_hits + self.cache_misses\n        cache_hit_ratio = self.cache_hits / total_cache if total_cache > 0 else 0\n        \n        success_rate = (\n            self.successful_requests / self.total_requests\n            if self.total_requests > 0 else 0\n        )\n        \n        return {\n            \"avg_processing_time\": round(avg_time, 3),\n            \"cache_hit_ratio\": round(cache_hit_ratio, 3),\n            \"success_rate\": round(success_rate, 3),\n            \"total_requests\": self.total_requests,\n            \"error_counts\": self.error_counts,\n        }\n\n# 싱글톤 인스턴스\nmetrics = MetricsCollector()\n```\n\n메트릭 API 엔드포인트:\n```python\n@router.get(\"/metrics\")\nasync def get_metrics():\n    from app.services.metrics_service import metrics\n    from app.services.queue_manager import queue_manager\n    from app.services.rate_limiter import instagram_rate_limiter\n    \n    return {\n        \"metrics\": metrics.get_metrics(),\n        \"queue\": queue_manager.get_queue_stats(),\n        \"rate_limiter\": instagram_rate_limiter.get_status(),\n    }\n```",
+        "testStrategy": "1. 메트릭 수집 정확성 테스트\n2. /api/v1/metrics 엔드포인트 응답 확인\n3. 캐시 히트율 계산 정확성 확인",
         "priority": "low",
         "dependencies": [
-          "4"
+          "21"
         ],
-        "status": "done",
-        "subtasks": [],
-        "updatedAt": "2026-03-07T14:34:43.742Z"
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "29",
+        "title": "에러 응답 개선 및 재시도 안내",
+        "description": "Instagram 차단 시 사용자에게 명확한 재시도 안내 제공",
+        "details": "파일: backend/app/middleware/error_handler.py 수정\n\n```python\nfrom fastapi import Request\nfrom fastapi.responses import JSONResponse\n\n@app.exception_handler(RateLimitError)\nasync def rate_limit_handler(request: Request, exc: RateLimitError):\n    return JSONResponse(\n        status_code=429,\n        content={\n            \"error\": \"RATE_LIMITED_BY_INSTAGRAM\",\n            \"message\": \"Instagram에서 일시적으로 요청을 차단했습니다. 잠시 후 다시 시도해주세요.\",\n            \"retry_after_seconds\": 300,\n            \"suggestion\": \"5분 후에 다시 시도하거나, 다른 계정으로 분석해 보세요.\"\n        }\n    )\n\n@app.exception_handler(CircuitBreakerOpenError)\nasync def circuit_breaker_handler(request: Request, exc: CircuitBreakerOpenError):\n    return JSONResponse(\n        status_code=503,\n        content={\n            \"error\": \"SERVICE_UNAVAILABLE\",\n            \"message\": \"현재 Instagram 분석 서비스가 일시적으로 사용 불가능합니다.\",\n            \"retry_after_seconds\": 300,\n            \"suggestion\": \"잠시 후 다시 시도해주세요.\"\n        }\n    )\n```\n\n프론트엔드 에러 처리 개선:\n```tsx\n// components/ErrorMessage.tsx\ninterface ErrorMessageProps {\n  error: {\n    error: string;\n    message: string;\n    retry_after_seconds?: number;\n    suggestion?: string;\n  };\n  onRetry: () => void;\n}\n\nexport function ErrorMessage({ error, onRetry }: ErrorMessageProps) {\n  return (\n    <div className=\"p-6 bg-red-50 rounded-lg\">\n      <h3 className=\"text-red-800 font-semibold\">{error.message}</h3>\n      {error.suggestion && (\n        <p className=\"text-red-600 mt-2\">{error.suggestion}</p>\n      )}\n      {error.retry_after_seconds && (\n        <p className=\"text-sm text-red-500 mt-1\">\n          {Math.ceil(error.retry_after_seconds / 60)}분 후 재시도 가능\n        </p>\n      )}\n      <button\n        onClick={onRetry}\n        className=\"mt-4 px-4 py-2 bg-red-600 text-white rounded\"\n      >\n        다시 시도\n      </button>\n    </div>\n  );\n}\n```",
+        "testStrategy": "1. 429 응답 시 적절한 에러 메시지 반환 확인\n2. 503 응답 시 Circuit Breaker 상태 확인\n3. 프론트엔드 에러 메시지 표시 확인",
+        "priority": "medium",
+        "dependencies": [
+          "26"
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "30",
+        "title": "문서화 및 배포 준비",
+        "description": "API 문서 업데이트, 배포 가이드 작성, 롤백 계획 수립",
+        "details": "1. API 문서 업데이트:\n- /api/v1/analyze 변경사항 (queue 지원)\n- /api/v1/queue/{job_id}/status 신규\n- /api/v1/queue/status 신규\n- 에러 응답 형식 업데이트\n\n2. 배포 체크리스트:\n```markdown\n## Pre-deployment Checklist\n- [ ] Instaloader 완전 제거 확인\n- [ ] httpx, curl_cffi 설치 확인\n- [ ] Redis 연결 확인\n- [ ] 환경 변수 설정 확인\n- [ ] 통합 테스트 통과\n- [ ] 부하 테스트 통과 (300 concurrent)\n```\n\n3. 롤백 계획:\n```bash\n# 롤백 스크립트\n#!/bin/bash\n# rollback.sh\necho \"Rolling back to Instaloader version...\"\ngit checkout main -- backend/\npip install instaloader==4.14\nsystemctl restart itsmegram\n```\n\n4. 모니터링 대시보드 설정:\n- 큐 크기 모니터링\n- Instagram 에러율 알림\n- 처리 시간 추적",
+        "testStrategy": "1. 배포 체크리스트 모두 통과\n2. 롤백 스크립트 테스트\n3. 문서 최신화 확인",
+        "priority": "medium",
+        "dependencies": [
+          "27"
+        ],
+        "status": "pending",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-03-07T14:34:43.743Z",
+      "lastModified": "2026-03-10T06:51:33.897Z",
       "taskCount": 15,
-      "completedCount": 15,
+      "completedCount": 11,
       "tags": [
         "master"
       ]

@@ -94,7 +94,8 @@ def setup_logging(
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("instaloader").setLevel(logging.WARNING)
+    # logging.getLogger("instaloader").setLevel(logging.WARNING)  # Removed - instaloader replaced
+    logging.getLogger("curl_cffi").setLevel(logging.WARNING)  # Added for new HTTP client
 
     # 로깅 설정 완료 로그
     logger = structlog.get_logger()

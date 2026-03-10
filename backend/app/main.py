@@ -14,7 +14,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
-from app.routers import health, instagram, analysis, report, analytics
+from app.routers import health, instagram, analysis, report, analytics, queue
 from app.utils.logger import setup_logging, get_logger
 from app.middleware.error_handler import setup_exception_handlers
 from app.middleware.request_logger import RequestLoggingMiddleware, ErrorLoggingMiddleware
@@ -129,10 +129,11 @@ app.include_router(instagram.router, prefix=API_V1_PREFIX, tags=["instagram"])
 app.include_router(analysis.router, prefix=API_V1_PREFIX, tags=["analysis"])
 app.include_router(report.router, prefix=API_V1_PREFIX, tags=["report"])
 app.include_router(analytics.router, prefix=API_V1_PREFIX, tags=["analytics"])
+app.include_router(queue.router, prefix=API_V1_PREFIX)
 
 logger.info(
     "routers_registered",
-    routers=["health", "instagram", "analysis", "report", "analytics"],
+    routers=["health", "instagram", "analysis", "report", "analytics", "queue"],
     prefix=API_V1_PREFIX
 )
 

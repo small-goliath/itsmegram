@@ -1,6 +1,6 @@
 """
-itsmegram - Instagram 데이터 수집 서비스
-Instaloader를 사용하여 인스타그램 프로필 및 게시물 데이터 수집
+itsmegram v2.0 - Instagram 데이터 수집 서비스
+HTTP 기반 직접 요청으로 Instaloader 대체
 """
 
 import asyncio
@@ -8,17 +8,11 @@ import re
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-import instaloader
-from instaloader import Instaloader, Profile, Post
-from instaloader.exceptions import (
-    ProfileNotExistsException,
-    ConnectionException,
-    LoginRequiredException,
-    TooManyRequestsException,
-)
-
 from app.models.schemas import ProfileData, PostData, InstagramData
 from app.services.cache_service import cache_service
+from app.services.rate_limiter import instagram_rate_limiter
+from app.clients.http_client import http_client
+from app.parsers.instagram_parser import parser
 from app.utils.exceptions import (
     InstagramServiceError,
     ProfileNotFoundError,
@@ -32,77 +26,16 @@ logger = structlog.get_logger()
 
 class InstagramService:
     """
-    Instagram 데이터 수집 서비스
-    - Instaloader를 사용한 프로필/게시물 데이터 수집
+    Instagram 데이터 수집 서비스 v2.0
+    - HTTP 기반 직접 요청
+    - Rate Limiting 지원
     - 캐싱 지원
-    - 비동기 처리
     """
 
     def __init__(self):
-        self._loader: Optional[Instaloader] = None
-        self._lock = asyncio.Lock()
-
-    async def _get_loader(self) -> Instaloader:
-        """
-        Instaloader 인스턴스 가져오기 (스레드 안전)
-        """
-        if self._loader is None:
-            async with self._lock:
-                if self._loader is None:
-                    self._loader = Instaloader(
-                        download_pictures=False,
-                        download_videos=False,
-                        download_video_thumbnails=False,
-                        download_geotags=False,
-                        download_comments=False,
-                        save_metadata=False,
-                        compress_json=False,
-                        post_metadata_txt_pattern="",
-                    )
-                    logger.info("instaloader_initialized")
-        return self._loader
-
-    def _extract_hashtags(self, text: str) -> List[str]:
-        """
-        텍스트에서 해시태그 추출
-        """
-        if not text:
-            return []
-        hashtags = re.findall(r'#(\w+)', text)
-        return [tag.lower() for tag in hashtags]
-
-    def _extract_mentions(self, text: str) -> List[str]:
-        """
-        텍스트에서 멘션 추출
-        """
-        if not text:
-            return []
-        mentions = re.findall(r'@(\w+)', text)
-        return [mention.lower() for mention in mentions]
-
-    def _get_post_type(self, post: Post) -> str:
-        """
-        게시물 타입 결정
-        """
-        if post.typename == "GraphSidecar":
-            return "carousel"
-        elif post.is_video:
-            return "video"
-        else:
-            return "image"
-
-    def _get_media_url(self, post: Post) -> str:
-        """
-        게시물 미디어 URL 가져오기
-        """
-        try:
-            if post.is_video and post.video_url:
-                return post.video_url
-            elif post.url:
-                return post.url
-            return ""
-        except Exception:
-            return ""
+        self._client = http_client
+        self._parser = parser
+        self._rate_limiter = instagram_rate_limiter
 
     async def fetch_profile(self, username: str, use_cache: bool = True) -> ProfileData:
         """
@@ -121,75 +54,57 @@ class InstagramService:
             RateLimitError: Rate limit에 걸린 경우
             InstagramServiceError: 기타 에러
         """
-        # 캐시 확인 (30분 TTL)
+        # 캐시 확인
         if use_cache:
-            cached_data = await cache_service.get_cached_profile(username)
-            if cached_data:
+            cached = await cache_service.get_cached_profile(username)
+            if cached:
                 logger.info("profile_cache_hit", username=username)
-                return ProfileData(**cached_data)
+                return ProfileData(**cached)
+
+        # Rate Limit 적용
+        await self._rate_limiter.acquire()
 
         try:
-            loader = await self._get_loader()
+            # HTTP 요청
+            response_data = await self._client.fetch_profile(username)
 
-            # 동기식 Instaloader를 비동기로 실행
-            loop = asyncio.get_event_loop()
-            profile = await loop.run_in_executor(
-                None,
-                lambda: Profile.from_username(loader.context, username)
-            )
+            # 파싱
+            profile_dict = self._parser.parse_profile(response_data)
 
             # 비공개 계정 체크
-            if profile.is_private:
-                logger.warning("private_account_access_denied", username=username)
+            if profile_dict.get("is_private"):
                 raise PrivateAccountError(username)
 
-            profile_data = ProfileData(
-                username=profile.username,
-                full_name=profile.full_name or "",
-                biography=profile.biography or "",
-                followers=profile.followers,
-                following=profile.followees,
-                posts_count=profile.mediacount,
-                is_private=profile.is_private,
-                profile_pic_url=profile.profile_pic_url or "",
-                is_verified=profile.is_verified,
-                external_url=profile.external_url,
-            )
+            profile_data = ProfileData(**profile_dict)
 
-            # 캐시 저장 (30분 TTL)
+            # 성공 보고 (adaptive rate limiting)
+            self._rate_limiter.report_success()
+
+            # 캐시 저장
             if use_cache:
                 await cache_service.cache_profile(
                     username,
                     profile_data.model_dump(),
-                    ttl=1800  # 30분
+                    ttl=1800,  # 30분
                 )
 
             logger.info(
                 "profile_fetched",
                 username=username,
                 followers=profile_data.followers,
-                posts=profile_data.posts_count,
             )
-
             return profile_data
 
-        except ProfileNotExistsException as e:
-            logger.error("profile_not_found", username=username, error=str(e))
-            raise ProfileNotFoundError(username)
-
-        except (TooManyRequestsException, ConnectionException) as e:
-            logger.error("rate_limit_or_connection_error", username=username, error=str(e))
-            raise RateLimitError(f"Instagram API limit exceeded: {str(e)}")
-
+        except ProfileNotFoundError:
+            raise
         except PrivateAccountError:
             raise
-
+        except RateLimitError:
+            self._rate_limiter.report_rate_limited()
+            raise
         except Exception as e:
             logger.error("profile_fetch_error", username=username, error=str(e))
-            raise InstagramServiceError(
-                message=f"Failed to fetch profile: {str(e)}",
-                code="profile_fetch_error"
-            )
+            raise InstagramServiceError(f"Failed to fetch profile: {str(e)}")
 
     async def fetch_posts(
         self,
@@ -207,103 +122,48 @@ class InstagramService:
 
         Returns:
             List[PostData]: 게시물 데이터 목록
-
-        Raises:
-            ProfileNotFoundError: 프로필을 찾을 수 없는 경우
-            PrivateAccountError: 비공개 계정인 경우
-            RateLimitError: Rate limit에 걸린 경우
         """
-        limit = min(limit, 50)  # 최대 50개로 제한
+        limit = min(limit, 50)
 
-        # 캐시 확인 (30분 TTL)
+        # 캐시 확인
         if use_cache:
-            cached_data = await cache_service.get_cached_posts(username, limit)
-            if cached_data:
-                logger.info("posts_cache_hit", username=username, limit=limit)
-                return [PostData(**post) for post in cached_data]
+            cached = await cache_service.get_cached_posts(username, limit)
+            if cached:
+                return [PostData(**post) for post in cached]
+
+        # Rate Limit 적용
+        await self._rate_limiter.acquire()
 
         try:
-            loader = await self._get_loader()
+            # HTTP 요청 (프로필 API에서 게시물도 함께 제공)
+            response_data = await self._client.fetch_profile(username)
 
-            # 프로필 가져오기
-            loop = asyncio.get_event_loop()
-            profile = await loop.run_in_executor(
-                None,
-                lambda: Profile.from_username(loader.context, username)
-            )
+            # 파싱
+            posts_list = self._parser.parse_posts(response_data, limit)
+            posts_data = [PostData(**post) for post in posts_list]
 
-            # 비공개 계정 체크
-            if profile.is_private:
-                logger.warning("private_account_posts_denied", username=username)
-                raise PrivateAccountError(username)
+            # 성공 보고
+            self._rate_limiter.report_success()
 
-            # 게시물 수집
-            posts_data: List[PostData] = []
-            posts_iterator = profile.get_posts()
-
-            for idx, post in enumerate(posts_iterator):
-                if idx >= limit:
-                    break
-
-                try:
-                    post_data = PostData(
-                        post_id=str(post.mediaid),
-                        caption=post.caption or "",
-                        likes=post.likes,
-                        comments=post.comments,
-                        media_url=self._get_media_url(post),
-                        hashtags=self._extract_hashtags(post.caption or ""),
-                        mentions=self._extract_mentions(post.caption or ""),
-                        timestamp=post.date_local,
-                        post_type=self._get_post_type(post),
-                        shortcode=post.shortcode,
-                    )
-                    posts_data.append(post_data)
-
-                except Exception as e:
-                    logger.warning(
-                        "post_parse_error",
-                        username=username,
-                        post_id=post.mediaid if hasattr(post, 'mediaid') else 'unknown',
-                        error=str(e),
-                    )
-                    continue
-
-            # 캐시 저장 (30분 TTL)
+            # 캐시 저장
             if use_cache and posts_data:
                 await cache_service.cache_posts(
                     username,
                     limit,
                     [post.model_dump() for post in posts_data],
-                    ttl=1800  # 30분
+                    ttl=1800,  # 30분
                 )
 
             logger.info(
                 "posts_fetched",
                 username=username,
-                requested=limit,
-                fetched=len(posts_data),
+                count=len(posts_data),
             )
-
             return posts_data
-
-        except ProfileNotExistsException as e:
-            logger.error("profile_not_found_for_posts", username=username, error=str(e))
-            raise ProfileNotFoundError(username)
-
-        except (TooManyRequestsException, ConnectionException) as e:
-            logger.error("rate_limit_or_connection_error_posts", username=username, error=str(e))
-            raise RateLimitError(f"Instagram API limit exceeded: {str(e)}")
-
-        except PrivateAccountError:
-            raise
 
         except Exception as e:
             logger.error("posts_fetch_error", username=username, error=str(e))
-            raise InstagramServiceError(
-                message=f"Failed to fetch posts: {str(e)}",
-                code="posts_fetch_error"
-            )
+            raise InstagramServiceError(f"Failed to fetch posts: {str(e)}")
 
     async def fetch_full_data(
         self,
@@ -322,11 +182,17 @@ class InstagramService:
         Returns:
             InstagramData: 전체 인스타그램 데이터
         """
-        # 프로필과 게시물을 병렬로 가져오기
-        profile_task = self.fetch_profile(username, use_cache)
-        posts_task = self.fetch_posts(username, posts_limit, use_cache)
+        # 캐시 확인 (전체 데이터)
+        if use_cache:
+            cached = await cache_service.get_cached_analysis(username)
+            if cached:
+                return InstagramData(**cached)
 
-        profile, posts = await asyncio.gather(profile_task, posts_task)
+        # 병렬 처리
+        profile, posts = await asyncio.gather(
+            self.fetch_profile(username, use_cache),
+            self.fetch_posts(username, posts_limit, use_cache),
+        )
 
         return InstagramData(
             profile=profile,
@@ -344,58 +210,43 @@ class InstagramService:
         Returns:
             Dict: 검사 결과
         """
-        # 기본 형식 검사
-        if not re.match(r'^[a-zA-Z0-9._]{1,30}$', username):
+        if not re.match(r"^[a-zA-Z0-9._]{1,30}$", username):
             return {
                 "username": username,
                 "is_valid": False,
                 "exists": None,
                 "is_private": None,
-                "message": "Invalid username format. Use 1-30 characters of letters, numbers, dots, or underscores.",
+                "message": "Invalid username format",
             }
 
         try:
-            loader = await self._get_loader()
-            loop = asyncio.get_event_loop()
-            profile = await loop.run_in_executor(
-                None,
-                lambda: Profile.from_username(loader.context, username)
-            )
+            await self._rate_limiter.acquire()
+            response_data = await self._client.fetch_profile(username)
+            profile_dict = self._parser.parse_profile(response_data)
 
             return {
                 "username": username,
                 "is_valid": True,
                 "exists": True,
-                "is_private": profile.is_private,
-                "message": "Account exists and is valid",
+                "is_private": profile_dict.get("is_private", False),
+                "message": "Account exists",
             }
 
-        except ProfileNotExistsException:
+        except ProfileNotFoundError:
             return {
                 "username": username,
                 "is_valid": True,
                 "exists": False,
                 "is_private": None,
-                "message": "Username format is valid but account does not exist",
+                "message": "Account does not exist",
             }
-
-        except (TooManyRequestsException, ConnectionException) as e:
-            return {
-                "username": username,
-                "is_valid": True,
-                "exists": None,
-                "is_private": None,
-                "message": f"Could not verify account due to rate limiting: {str(e)}",
-            }
-
         except Exception as e:
-            logger.error("validate_username_error", username=username, error=str(e))
             return {
                 "username": username,
                 "is_valid": True,
                 "exists": None,
                 "is_private": None,
-                "message": f"Error validating username: {str(e)}",
+                "message": f"Error: {str(e)}",
             }
 
     async def clear_cache(self, username: Optional[str] = None) -> bool:
@@ -410,15 +261,14 @@ class InstagramService:
         """
         try:
             if username:
-                # 특정 사용자 캐시 삭제 (새로운 메서드 사용)
                 await cache_service.invalidate_profile(username)
                 await cache_service.invalidate_posts(username)
                 logger.info("cache_cleared_for_user", username=username)
             return True
         except Exception as e:
-            logger.error("cache_clear_error", username=username, error=str(e))
+            logger.error("cache_clear_error", error=str(e))
             return False
 
 
 # 싱글톤 인스턴스
-instagram_service = InstagramService()
+instagram_service = InstagramService()}

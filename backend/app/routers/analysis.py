@@ -25,6 +25,7 @@ from app.models.schemas import (
 from app.config import get_settings
 from app.services.instagram_service import instagram_service
 from app.services.ai_service import ai_service
+from app.services.queue_manager import queue_manager, QueueStatus
 from app.utils.exceptions import (
     AIServiceError,
     MoonshotAPIError,
@@ -33,24 +34,32 @@ from app.utils.exceptions import (
 from app.services.report_service import report_service, ReportCreationError
 from app.services.analytics_service import analytics_service
 from app.utils.logger import get_logger
+import structlog
+
+logger = get_logger("analysis_router")
+struct_logger = structlog.get_logger()
 
 router = APIRouter()
-logger = get_logger("analysis_router")
 
 # Rate Limiter 인스턴스 (main.py에서 주입됨)
 limiter = Limiter(key_func=get_remote_address)
 
-# In-memory storage for demo (production에서는 Redis 사용 권장)
-analysis_jobs: Dict[str, Dict[str, Any]] = {}
 
+async def _process_analysis(report_id: str) -> dict:
+    """
+    실제 분석 처리 함수 (큐에서 실행)
+    """
+    from app.services.report_service import report_service
 
-async def _run_analysis_background(report_id: str, username: str):
-    """
-    백그라운드에서 AI 분석 수행 (기존 방식 - report_service로 마이그레이션 예정)
-    """
+    # 리포트 가져오기
+    report = report_service.storage.get(report_id)
+    if not report:
+        raise ValueError(f"Report {report_id} not found")
+
+    username = report.username
+
     try:
-        analysis_jobs[report_id]["progress"] = 10
-        analysis_jobs[report_id]["message"] = "인스타그램 데이터 수집 중..."
+        struct_logger.info("analysis_started_from_queue", report_id=report_id, username=username)
 
         # 인스타그램 데이터 수집
         instagram_data = await instagram_service.fetch_full_data(
@@ -59,23 +68,43 @@ async def _run_analysis_background(report_id: str, username: str):
             use_cache=True,
         )
 
-        analysis_jobs[report_id]["progress"] = 40
-        analysis_jobs[report_id]["message"] = "AI 분석 중..."
-
         # AI 분석 수행
         report_data = await ai_service.generate_report(instagram_data)
 
-        analysis_jobs[report_id]["progress"] = 100
-        analysis_jobs[report_id]["status"] = AnalysisStatus.COMPLETED
-        analysis_jobs[report_id]["message"] = "분석이 완료되었습니다."
-        analysis_jobs[report_id]["result"] = report_data.model_dump()
-        analysis_jobs[report_id]["completed_at"] = datetime.utcnow().isoformat()
+        # 리포트 저장 (storage에 직접 저장)
+        from app.services.report_service import report_service
+        from app.models.report import ReportStatus
+
+        report = report_service.storage.get(report_id)
+        if report:
+            report.status = ReportStatus.COMPLETED
+            report.report_data = report_data
+            report.completed_at = datetime.utcnow()
+            report_service.storage.save(report)
+
+        struct_logger.info("analysis_completed_from_queue", report_id=report_id, username=username)
+        return {"report_id": report_id, "status": "completed"}
 
     except Exception as e:
-        analysis_jobs[report_id]["status"] = AnalysisStatus.FAILED
-        analysis_jobs[report_id]["message"] = f"분석 실패: {str(e)}"
-        analysis_jobs[report_id]["error"] = str(e)
-        analysis_jobs[report_id]["completed_at"] = datetime.utcnow().isoformat()
+        struct_logger.error("analysis_failed_from_queue", report_id=report_id, username=username, error=str(e))
+
+        # 실패 상태 저장
+        from app.models.report import ReportStatus
+
+        if report:
+            report.status = ReportStatus.FAILED
+            report.error_message = str(e)
+            report.completed_at = datetime.utcnow()
+            report_service.storage.save(report)
+
+        raise
+
+
+@router.on_event("startup")
+async def startup_event():
+    """Start queue processor on app startup"""
+    await queue_manager.start()
+    struct_logger.info("queue_processor_started")
 
 
 @router.post(
@@ -98,6 +127,8 @@ async def start_analysis(
 ) -> AnalyzeResponse:
     """
     인스타그램 계정 분석을 시작합니다.
+    - 큐가 필요한 경우: job_id 반환
+    - 큐가 필요 없는 경우: 즉시 처리
 
     Args:
         request: 분석 요청 (username 포함)
@@ -114,22 +145,78 @@ async def start_analysis(
     """
     settings = get_settings()
 
-    # 새로운 리포트 서비스를 사용하여 리포트 생성
-    logger.info("analysis_request_received", username=data.username, client_ip=request.client.host if request.client else None)
+    struct_logger.info(
+        "analysis_request_received",
+        username=data.username,
+        client_ip=request.client.host if request.client else None
+    )
 
     try:
+        # 큐가 필요한 상황인지 판단
+        if queue_manager.should_queue():
+            # 리포트 먼저 생성 (pending 상태)
+            from app.models.report import Report
+
+            report = Report(
+                username=data.username,
+                status="pending",
+            )
+            report_id = report.id
+
+            # storage에 저장
+            from app.services.report_service import report_service
+            report_service.storage.save(report)
+
+            # 큐에 등록
+            job_id = await queue_manager.enqueue(
+                username=data.username,
+                task_func=_process_analysis,
+                report_id=report_id,
+            )
+
+            if not job_id:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Server is busy. Please try again later."
+                )
+
+            struct_logger.info(
+                "analysis_queued",
+                report_id=report_id,
+                job_id=job_id,
+                username=data.username,
+                queue_position=queue_manager.get_status(job_id)["queue_position"]
+            )
+
+            # 분석 시작 트래킹
+            await analytics_service.track_analysis_start(
+                report_id=report_id,
+                username=data.username,
+                session_id=None,
+                ip_address=request.client.host if request.client else None,
+            )
+
+            return AnalyzeResponse(
+                report_id=report_id,
+                status=AnalysisStatus.PROCESSING,
+                message=f"분석이 대기열에 추가되었습니다. (대기순번: {queue_manager.get_status(job_id)['queue_position']}번)",
+                estimated_time_seconds=int(queue_manager.get_status(job_id)["estimated_wait_seconds"]),
+                check_url=f"{settings.api_v1_prefix}/queue/{job_id}/status",
+            )
+
+        # 즉시 처리
         report_id = await report_service.create_report_async(
             username=data.username,
             background_tasks=background_tasks
         )
 
-        logger.info("analysis_started", report_id=report_id, username=data.username)
+        struct_logger.info("analysis_started_immediately", report_id=report_id, username=data.username)
 
         # 분석 시작 트래킹
         await analytics_service.track_analysis_start(
             report_id=report_id,
             username=data.username,
-            session_id=None,  # 세션 ID는 필요시 추가
+            session_id=None,
             ip_address=request.client.host if request.client else None,
         )
 
@@ -142,14 +229,14 @@ async def start_analysis(
         )
 
     except ReportCreationError as e:
-        logger.error("report_creation_failed", username=data.username, error=e.message)
+        struct_logger.error("report_creation_failed", username=data.username, error=e.message)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start analysis: {e.message}",
         )
 
     except Exception as e:
-        logger.error("unexpected_analysis_error", username=data.username, error=str(e))
+        struct_logger.error("unexpected_analysis_error", username=data.username, error=str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error: {str(e)}",

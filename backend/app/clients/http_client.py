@@ -139,7 +139,7 @@ class InstagramHTTPClient:
         """
         return await instagram_circuit_breaker.call(
             self._fetch_profile_internal, username, max_retries
-        )</invoke>
+        )
 
 
 # Singleton instance

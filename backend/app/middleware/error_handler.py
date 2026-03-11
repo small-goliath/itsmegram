@@ -27,8 +27,6 @@ from app.utils.exceptions import (
 from app.services.circuit_breaker import CircuitBreakerOpenError
 from app.services.metrics_service import metrics
 
-logger = get_logger("error_handler")"}  بشكل literal  (replace_all=False)  ...  Wait, I need to remove the duplicate logger line. Let me check the file again. I see logger is defined on line 33. Let me be careful with the replacement. Let me try a different approach - first I'll remove the duplicate logger line, then add the new imports. actually, let me just replace the imports section: I need to be careful. The current file has the imports and then `logger = get_logger(
-
 logger = get_logger("error_handler")
 
 

@@ -271,4 +271,4 @@ class InstagramService:
 
 
 # 싱글톤 인스턴스
-instagram_service = InstagramService()}
+instagram_service = InstagramService()

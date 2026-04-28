@@ -3,7 +3,7 @@
  * 백엔드 API와 통신하는 함수들
  */
 
-import { AnalysisResponse, AnalysisStatus, Report, ApiError } from "../types";
+import { AnalysisResponse, AnalysisStatus, ApiError, Report } from "../types";
 
 // API 기본 URL - 클라이언트/서버 모두에서 작동하도록 상대 경로 사용
 const API_BASE_URL = "/api/v1";
@@ -23,8 +23,13 @@ export async function requestAnalysis(username: string): Promise<AnalysisRespons
   });
 
   if (!response.ok) {
-    const error: ApiError = await response.json();
-    throw new Error(error.detail || "분석 요청에 실패했습니다");
+    const text = await response.text();
+    try {
+      const error: ApiError = JSON.parse(text);
+      throw new Error(error.detail || "분석 요청에 실패했습니다");
+    } catch {
+      throw new Error("서버에 연결할 수 없습니다.");
+    }
   }
 
   return response.json();
@@ -44,8 +49,13 @@ export async function checkAnalysisStatus(report_id: string): Promise<AnalysisSt
   });
 
   if (!response.ok) {
-    const error: ApiError = await response.json();
-    throw new Error(error.detail || "상태 확인에 실패했습니다");
+    const text = await response.text();
+    try {
+      const error: ApiError = JSON.parse(text);
+      throw new Error(error.detail || "상태 확인에 실패했습니다");
+    } catch {
+      throw new Error("서버에 연결할 수 없습니다.");
+    }
   }
 
   return response.json();
@@ -65,8 +75,13 @@ export async function getReport(report_id: string): Promise<Report> {
   });
 
   if (!response.ok) {
-    const error: ApiError = await response.json();
-    throw new Error(error.detail || "리포트 조회에 실패했습니다");
+    const text = await response.text();
+    try {
+      const error: ApiError = JSON.parse(text);
+      throw new Error(error.detail || "리포트 조회에 실패했습니다");
+    } catch {
+      throw new Error("서버에 연결할 수 없습니다.");
+    }
   }
 
   return response.json();

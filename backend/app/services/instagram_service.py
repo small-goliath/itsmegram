@@ -287,28 +287,10 @@ class InstagramService:
         )
 
     async def _profile_from_instaloader(self, username: str) -> "ProfileData":
-        """instaloader로 기본 프로필 정보만 가져오기"""
-        import asyncio
-        import instaloader as il
-        from app.services.instaloader_service import _get_loader
+        """instaloader 계정 풀을 통해 프로필 정보 수집"""
+        from app.services import instaloader_service
 
-        def _get():
-            L = _get_loader()
-            p = il.Profile.from_username(L.context, username)
-            return {
-                "username": p.username,
-                "full_name": p.full_name,
-                "biography": p.biography,
-                "followers": p.followers,
-                "following": p.followees,
-                "posts_count": p.mediacount,
-                "is_private": p.is_private,
-                "is_verified": p.is_verified,
-                "profile_pic_url": p.profile_pic_url,
-                "external_url": p.external_url or "",
-            }
-
-        profile_dict = await asyncio.to_thread(_get)
+        profile_dict = await instaloader_service.fetch_profile_with_login(username)
         return ProfileData(**profile_dict)
 
     async def validate_username(self, username: str) -> Dict[str, Any]:

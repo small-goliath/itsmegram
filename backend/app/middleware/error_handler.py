@@ -290,12 +290,32 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     )
 
 
+def _sanitize_errors(errors: list) -> list:
+    """Pydantic v2 errors에서 JSON 직렬화 불가 객체(ValueError 등)를 문자열로 변환"""
+    sanitized = []
+    for err in errors:
+        clean = {}
+        for k, v in err.items():
+            if k == "ctx" and isinstance(v, dict):
+                clean[k] = {ck: str(cv) if not isinstance(cv, (str, int, float, bool, type(None))) else cv
+                            for ck, cv in v.items()}
+            elif k == "url":
+                # pydantic v2 url 필드 제거 (노이즈)
+                continue
+            else:
+                clean[k] = v
+        sanitized.append(clean)
+    return sanitized
+
+
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """요청 검증 실패 핸들러"""
-    errors = exc.errors()
+    raw_errors = exc.errors()
+    errors = _sanitize_errors(raw_errors)
+
     logger.warning(
         "validation_error",
-        errors=errors,
+        errors=str(raw_errors),
         path=request.url.path
     )
 

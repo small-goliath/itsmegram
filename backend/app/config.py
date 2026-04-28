@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     # Instagram 로그인 설정 (게시물 수집에 필요)
     instagram_username: str = ""
     instagram_password: str = ""
+    # 다중 계정 풀링: "user1:pass1,user2:pass2" 형식
+    instagram_accounts: str = ""
 
     # CORS 설정
     cors_origins: str = "http://localhost:3000"

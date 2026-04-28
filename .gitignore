@@ -55,3 +55,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Instagram sessions (sensitive)
+.sessions/
+backend/.sessions/

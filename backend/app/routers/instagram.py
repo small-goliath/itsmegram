@@ -270,3 +270,25 @@ async def validate_username(username: str) -> ValidationResponse:
                 "code": "validation_error",
             },
         )
+
+
+@router.get(
+    "/instagram/pool-status",
+    summary="Instagram 계정 풀 상태",
+    description="Instagram 계정 풀의 현재 상태를 조회합니다.",
+)
+async def get_pool_status():
+    """계정 풀 상태 모니터링"""
+    from app.services import instaloader_service
+
+    accounts = instaloader_service.get_pool_status()
+    available = sum(
+        1
+        for a in accounts
+        if not a["in_use"] and a["cooldown_remaining"] == 0
+    )
+    return {
+        "total_accounts": len(accounts),
+        "available_accounts": available,
+        "accounts": accounts,
+    }

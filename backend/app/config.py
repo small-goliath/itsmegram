@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # Moonshot AI API 설정
     moonshot_api_key: str = ""
 
+    # Instagram 로그인 설정 (게시물 수집에 필요)
+    instagram_username: str = ""
+    instagram_password: str = ""
+
     # CORS 설정
     cors_origins: str = "http://localhost:3000"
 

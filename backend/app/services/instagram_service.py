@@ -168,11 +168,12 @@ class InstagramService:
     async def fetch_full_data(
         self,
         username: str,
-        posts_limit: int = 20,
+        posts_limit: int = 12,
         use_cache: bool = True,
     ) -> InstagramData:
         """
-        프로필과 게시물 데이터를 한번에 수집
+        프로필과 게시물 데이터 수집.
+        우선순위: instaloader(로그인) → HTTP API → 프로필만(게시물 없음)
 
         Args:
             username: 인스타그램 사용자명
@@ -180,25 +181,135 @@ class InstagramService:
             use_cache: 캐시 사용 여부
 
         Returns:
-            InstagramData: 전체 인스타그램 데이터
+            InstagramData: 전체 인스타그램 데이터 (게시물 포함)
+
+        Raises:
+            InstagramServiceError: 게시물 수집 불가 시
         """
-        # 캐시 확인 (전체 데이터)
+        from app.services import instaloader_service
+
+        # 캐시 확인
         if use_cache:
             cached = await cache_service.get_cached_analysis(username)
             if cached:
-                return InstagramData(**cached)
+                data = InstagramData(**cached)
+                if data.posts:
+                    return data
 
-        # 병렬 처리
-        profile, posts = await asyncio.gather(
-            self.fetch_profile(username, use_cache),
-            self.fetch_posts(username, posts_limit, use_cache),
-        )
+        # ── 1단계: instaloader 로그인 시도 ──────────────────────────────
+        if instaloader_service.is_configured():
+            try:
+                raw_posts = await instaloader_service.fetch_posts_with_login(
+                    username, limit=posts_limit
+                )
+                posts = [PostData(**p) for p in raw_posts]
+
+                # 프로필도 HTTP로 가져오기 (og: 폴백 포함)
+                try:
+                    await self._rate_limiter.acquire()
+                    response_data = await self._client.fetch_profile(username)
+                    profile_dict = self._parser.parse_profile(response_data)
+                    profile = ProfileData(**profile_dict)
+                    self._rate_limiter.report_success()
+                except Exception:
+                    # 프로필 HTTP 실패 시 instaloader로 기본 정보 구성
+                    profile = await self._profile_from_instaloader(username)
+
+                logger.info(
+                    "full_data_fetched_via_login",
+                    username=username,
+                    posts_count=len(posts),
+                )
+                instagram_data = InstagramData(
+                    profile=profile,
+                    posts=posts,
+                    collected_at=datetime.utcnow(),
+                )
+                if use_cache and posts:
+                    await cache_service.cache_posts(
+                        username, posts_limit,
+                        [p.model_dump() for p in posts], ttl=1800
+                    )
+                return instagram_data
+
+            except (ProfileNotFoundError, PrivateAccountError, RateLimitError):
+                raise
+            except Exception as e:
+                logger.warning(
+                    "instaloader_fetch_failed_trying_http",
+                    username=username,
+                    error=str(e),
+                )
+                # 인스타로더 실패 → HTTP 폴백
+
+        # ── 2단계: HTTP API (web_profile_info) ─────────────────────────
+        await self._rate_limiter.acquire()
+        try:
+            response_data = await self._client.fetch_profile(username)
+        except Exception as e:
+            logger.error("full_data_fetch_error", username=username, error=str(e))
+            raise
+
+        self._rate_limiter.report_success()
+
+        profile_dict = self._parser.parse_profile(response_data)
+        if profile_dict.get("is_private"):
+            raise PrivateAccountError(username)
+        profile = ProfileData(**profile_dict)
+
+        posts_list = self._parser.parse_posts(response_data, posts_limit)
+        posts = [PostData(**p) for p in posts_list]
+
+        if use_cache:
+            await cache_service.cache_profile(username, profile.model_dump(), ttl=1800)
+
+        if posts:
+            # HTTP로 게시물을 가져온 경우
+            logger.info("full_data_fetched_via_http", username=username, posts_count=len(posts))
+            if use_cache:
+                await cache_service.cache_posts(
+                    username, posts_limit,
+                    [p.model_dump() for p in posts], ttl=1800
+                )
+        else:
+            # 게시물 없음 → 분석 불가 에러
+            raise InstagramServiceError(
+                f"@{username}의 게시물 데이터를 수집할 수 없습니다. "
+                "Instagram의 접근 제한으로 인해 게시물을 가져오지 못했습니다. "
+                "INSTAGRAM_USERNAME과 INSTAGRAM_PASSWORD를 .env에 설정하면 "
+                "로그인을 통해 게시물을 수집할 수 있습니다."
+            )
 
         return InstagramData(
             profile=profile,
             posts=posts,
             collected_at=datetime.utcnow(),
         )
+
+    async def _profile_from_instaloader(self, username: str) -> "ProfileData":
+        """instaloader로 기본 프로필 정보만 가져오기"""
+        import asyncio
+        import instaloader as il
+        from app.services.instaloader_service import _get_loader
+
+        def _get():
+            L = _get_loader()
+            p = il.Profile.from_username(L.context, username)
+            return {
+                "username": p.username,
+                "full_name": p.full_name,
+                "biography": p.biography,
+                "followers": p.followers,
+                "following": p.followees,
+                "posts_count": p.mediacount,
+                "is_private": p.is_private,
+                "is_verified": p.is_verified,
+                "profile_pic_url": p.profile_pic_url,
+                "external_url": p.external_url or "",
+            }
+
+        profile_dict = await asyncio.to_thread(_get)
+        return ProfileData(**profile_dict)
 
     async def validate_username(self, username: str) -> Dict[str, Any]:
         """

@@ -3,11 +3,13 @@ itsmegram - 리포트 이미지 생성 서비스
 Playwright를 사용하여 Instagram 스토리 형식의 리포트 이미지 생성
 """
 
+import base64
 import io
 import os
 from typing import Optional, Dict, Any
 from datetime import timedelta
 
+import httpx
 from playwright.async_api import async_playwright, Browser, Page
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 import structlog
@@ -82,12 +84,42 @@ class ReportImageService:
         """이미지 캐시 키 생성"""
         return f"report:image:{report_id}"
 
-    def _render_template(self, report: Report) -> str:
+    async def _fetch_image_as_base64(self, url: str) -> Optional[str]:
+        """
+        외부 이미지 URL을 base64 data URI로 변환
+
+        Args:
+            url: 이미지 URL
+
+        Returns:
+            base64 data URI 문자열 또는 None
+        """
+        if not url:
+            return None
+        # 이미 base64 data URI인 경우 그대로 반환
+        if url.startswith("data:"):
+            return url
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                resp = await client.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "image/jpeg").split(";")[0]
+                encoded = base64.b64encode(resp.content).decode("utf-8")
+                return f"data:{content_type};base64,{encoded}"
+        except Exception as e:
+            logger.warning("profile_image_fetch_failed", url=url, error=str(e))
+            return None
+
+    def _render_template(self, report: Report, profile_image_data_uri: Optional[str] = None) -> str:
         """
         리포트 데이터를 HTML 템플릿에 렌더링
 
         Args:
             report: 리포트 모델
+            profile_image_data_uri: base64로 인코딩된 프로필 이미지 (없으면 원본 URL 사용)
 
         Returns:
             렌더링된 HTML 문자열
@@ -99,7 +131,7 @@ class ReportImageService:
             context = {
                 # 기본 정보
                 "username": report.username,
-                "profile_image_url": report.profile_image_url,
+                "profile_image_url": profile_image_data_uri or report.profile_image_url,
 
                 # 핵심 지표
                 "engagement_rate": report.basic_metrics.get("engagement_rate", 0),
@@ -228,7 +260,6 @@ class ReportImageService:
 
             if cached_data:
                 # Base64 디코딩
-                import base64
                 image_bytes = base64.b64decode(cached_data)
                 logger.debug(
                     "image_cache_hit",
@@ -256,7 +287,6 @@ class ReportImageService:
         """
         try:
             # Base64 인코딩
-            import base64
             encoded = base64.b64encode(image_bytes).decode('utf-8')
 
             cache_key = self._get_cache_key(report_id)
@@ -317,8 +347,15 @@ class ReportImageService:
             username=report.username
         )
 
+        # 프로필 이미지 base64 확보 (Playwright 렌더링 시 CORS 우회)
+        # 수집 시점에 저장된 base64가 있으면 우선 사용, 없으면 URL 직접 fetch 시도
+        profile_image_data_uri = (
+            report.profile_image_base64
+            or await self._fetch_image_as_base64(report.profile_image_url)
+        )
+
         # HTML 템플릿 렌더링
-        html_content = self._render_template(report)
+        html_content = self._render_template(report, profile_image_data_uri)
 
         # 스크린샷 생성
         image_bytes = await self._generate_screenshot(html_content)

@@ -41,6 +41,7 @@ class Report(BaseModel):
 
     # 메타데이터
     profile_image_url: str = Field(default="", description="프로필 이미지 URL")
+    profile_image_base64: str = Field(default="", description="프로필 이미지 base64 data URI (이미지 생성용)")
     collected_posts_count: int = Field(default=0, description="수집된 게시물 수")
     status: str = Field(default="processing", description="리포트 상태 (processing, completed, failed)")
     error_message: Optional[str] = Field(default=None, description="에러 메시지 (실패 시)")

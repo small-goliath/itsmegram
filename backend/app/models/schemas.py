@@ -54,8 +54,8 @@ class AnalyzeRequest(BaseModel):
         if v.lower() in reserved:
             raise ValueError('사용할 수 없는 사용자명입니다')
 
-        # 연속된 점/언더스코어 체크
-        if '..' in v or '__' in v:
+        # 연속된 점만 차단 (Instagram은 연속 언더스코어 허용)
+        if '..' in v:
             raise ValueError('잘못된 사용자명 형식입니다')
 
         return v.lower().strip()  # 소문자로 변환 및 공백 제거
@@ -238,6 +238,7 @@ class ProfileData(BaseModel):
     posts_count: int = Field(default=0, description="게시물 수")
     is_private: bool = Field(default=False, description="비공개 계정 여부")
     profile_pic_url: str = Field(default="", description="프로필 사진 URL")
+    profile_pic_base64: str = Field(default="", description="프로필 사진 base64 data URI (이미지 저장용)")
     is_verified: bool = Field(default=False, description="인증된 계정 여부")
     external_url: Optional[str] = Field(default=None, description="외부 링크")
 

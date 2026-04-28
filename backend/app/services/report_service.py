@@ -252,6 +252,7 @@ class ReportService:
                 report.growth_potential = analysis_result.get("growth_potential", {})
                 report.summary = analysis_result.get("summary", "")
                 report.profile_image_url = instagram_data.profile.profile_pic_url
+                report.profile_image_base64 = instagram_data.profile.profile_pic_base64
                 report.collected_posts_count = len(instagram_data.posts)
                 report.status = "completed"
 
@@ -531,6 +532,7 @@ class ReportService:
                 report.growth_potential = analysis_result.get("growth_potential", {})
                 report.summary = analysis_result.get("summary", "")
                 report.profile_image_url = instagram_data.profile.profile_pic_url
+                report.profile_image_base64 = instagram_data.profile.profile_pic_base64
                 report.collected_posts_count = len(instagram_data.posts)
                 report.status = "completed"
 

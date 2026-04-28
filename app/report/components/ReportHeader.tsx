@@ -83,6 +83,11 @@ export function ReportHeader({
           <Badge variant="outline" className="mt-2">
             {collectedPostsCount}개 게시물 분석
           </Badge>
+          {collectedPostsCount === 0 && (
+            <p className="text-xs text-amber-600 mt-2 bg-amber-50 rounded-lg px-3 py-1.5 inline-block">
+              ⚠️ 게시물 데이터를 수집하지 못해 프로필 정보 기반으로 분석되었습니다
+            </p>
+          )}
         </div>
 
         {/* 핵심 지표 그리드 */}

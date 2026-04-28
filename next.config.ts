@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.instagram.com" },
       { protocol: "https", hostname: "scontent-*.instagram.com" },
       { protocol: "https", hostname: "scontent.*.instagram.com" },
+      { protocol: "https", hostname: "**.cdninstagram.com" },
     ],
     formats: ["image/webp", "image/avif"],
     minimumCacheTTL: 3600,

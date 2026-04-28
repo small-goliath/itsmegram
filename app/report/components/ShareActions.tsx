@@ -81,10 +81,14 @@ export function ShareActions({ reportId, username }: ShareActionsProps) {
       const contentDisposition = response.headers.get("content-disposition");
       let filename = `itsmegram_${username}_report.png`;
       if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
         if (filenameMatch) {
-          filename = filenameMatch[1];
+          filename = filenameMatch[1].replace(/['"]/g, "").trim();
         }
+      }
+      // 확장자 없으면 .png 추가
+      if (!filename.match(/\.(png|jpg|jpeg)$/i)) {
+        filename = filename + ".png";
       }
 
       const a = document.createElement("a");

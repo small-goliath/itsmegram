@@ -6,6 +6,7 @@
 // 기본 메트릭스
 export interface BasicMetrics {
   avg_likes: number;
+  avg_comments: number;
   engagement_rate: number;
   post_type_ratio: {
     image: number;

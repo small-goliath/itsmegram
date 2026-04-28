@@ -315,7 +315,7 @@ export function ShareActions({ reportId, username }: ShareActionsProps) {
           onClick={handleShare}
           variant="outline"
           size="lg"
-          className="border-gray-300"
+          className="border-gray-300 text-gray-700"
         >
           <Share2 className="mr-2 h-4 w-4" />
           공유하기
@@ -326,7 +326,7 @@ export function ShareActions({ reportId, username }: ShareActionsProps) {
           onClick={handleCopyLink}
           variant="outline"
           size="lg"
-          className="border-gray-300"
+          className="border-gray-300 text-gray-700"
         >
           {copied ? (
             <>

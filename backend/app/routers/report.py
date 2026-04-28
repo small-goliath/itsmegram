@@ -36,7 +36,6 @@ router = APIRouter()
 
 @router.get(
     "/report/{report_id}",
-    response_model=ReportResponse,
     responses={
         404: {"model": ErrorResponse, "description": "Report not found"},
         410: {"model": ErrorResponse, "description": "Report has expired"},
@@ -45,7 +44,7 @@ router = APIRouter()
     summary="분석 리포트 조회",
     description="특정 리포트 ID로 완성된 분석 리포트를 조회합니다. 리포트는 생성 후 24시간 동안 유효합니다.",
 )
-async def get_report(report_id: str) -> ReportResponse:
+async def get_report(report_id: str) -> dict:
     """
     완성된 분석 리포트를 조회합니다.
 
@@ -53,15 +52,12 @@ async def get_report(report_id: str) -> ReportResponse:
         report_id: 리포트 고유 ID
 
     Returns:
-        ReportResponse: 완성된 리포트 데이터
+        dict: 리포트 데이터 (Report 모델 형식)
 
     Raises:
         HTTPException: 리포트를 찾을 수 없거나 만료된 경우
     """
-    settings = get_settings()
-
     try:
-        # 저장소에서 리포트 조회
         report = await report_service.get_report(report_id)
 
         if not report:
@@ -70,116 +66,32 @@ async def get_report(report_id: str) -> ReportResponse:
                 detail=f"Report '{report_id}' not found",
             )
 
-        # 처리 중인 경우
-        if report.status == "processing":
-            return ReportResponse(
-                report_id=report.id,
-                username=report.username,
-                status=AnalysisStatus.PROCESSING,
-                report_data=ReportData(
-                    profile=InstagramProfile(username=report.username),
-                    metrics=AnalysisMetrics(),
-                    generated_at=report.created_at,
-                ),
-                created_at=report.created_at,
-                expires_at=report.expires_at,
-            )
-
-        # 실패한 경우
+        # 실패한 경우: error_message를 포함하여 프론트엔드가 처리할 수 있게 반환
         if report.status == "failed":
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=report.error_message or "Report generation failed",
-            )
+            return {
+                "id": report.id,
+                "username": report.username,
+                "status": "failed",
+                "error_message": report.error_message,
+                "created_at": report.created_at.isoformat(),
+                "expires_at": report.expires_at.isoformat(),
+                "basic_metrics": {},
+                "content_tendency": {},
+                "lifestyle": {},
+                "personality": {},
+                "network": {},
+                "growth_potential": {},
+                "summary": "",
+                "profile_image_url": "",
+                "collected_posts_count": 0,
+            }
 
-        # 완료된 리포트 데이터 변환
-        profile = InstagramProfile(
-            username=report.username,
-            full_name=report.basic_metrics.get("full_name", ""),
-            biography=report.basic_metrics.get("biography", ""),
-            followers_count=report.basic_metrics.get("followers", 0),
-            following_count=report.basic_metrics.get("following", 0),
-            posts_count=report.collected_posts_count,
-            profile_pic_url=report.profile_image_url,
-            is_private=False,
-            is_verified=report.basic_metrics.get("is_verified", False),
-        )
-
-        metrics = AnalysisMetrics(
-            engagement_rate=report.basic_metrics.get("engagement_rate", 0),
-            avg_likes=report.basic_metrics.get("avg_likes", 0),
-            avg_comments=report.basic_metrics.get("avg_comments", 0),
-            posting_frequency=report.content_tendency.get("posting_frequency"),
-            top_hashtags=report.content_tendency.get("hashtag_pattern", []),
-            content_themes=report.content_tendency.get("categories", []),
-        )
-
-        # AI 인사이트 변환
-        insights = []
-
-        if report.content_tendency:
-            insights.append(AIInsight(
-                category="content",
-                title="콘텐츠 성향",
-                description=f"시각적 스타일: {report.content_tendency.get('visual_style', '분석 불가')}. 텍스트 스타일: {report.content_tendency.get('text_style', '분석 불가')}",
-                score=7,
-                recommendations=["일관된 브랜드 아이덴티티 유지"],
-            ))
-
-        if report.lifestyle:
-            insights.append(AIInsight(
-                category="lifestyle",
-                title="라이프스타일 분석",
-                description=f"관심사: {', '.join(report.lifestyle.get('interests', []))}. 활동 패턴: {report.lifestyle.get('activity_pattern', '분석 불가')}",
-                score=6,
-                recommendations=["관심사 기반 콘텐츠 강화"],
-            ))
-
-        if report.personality:
-            insights.append(AIInsight(
-                category="personality",
-                title="성격 특성",
-                description=f"외향성: {report.personality.get('extroversion', '분석 불가')}. 표현력 점수: {report.personality.get('expression_strength', 0):.0f}/100",
-                score=int(report.personality.get("expression_strength", 50) / 10),
-                recommendations=["개인적인 브랜딩 강화"],
-            ))
-
-        if report.network:
-            insights.append(AIInsight(
-                category="network",
-                title="네트워크 분석",
-                description=f"참여 품질: {report.network.get('engagement_quality', '분석 불가')}. 커뮤니티 유형: {report.network.get('community_type', '분석 불가')}",
-                score=6,
-                recommendations=["커뮤니티 참여 강화"],
-            ))
-
-        if report.growth_potential:
-            insights.append(AIInsight(
-                category="growth",
-                title="성장 잠재력",
-                description=f"성장 추세: {report.growth_potential.get('trend', '분석 불가')}. 일관성: {report.growth_potential.get('consistency', '분석 불가')}",
-                score=7,
-                recommendations=report.growth_potential.get("suggestions", ["꾸준한 콘텐츠 게시"]),
-            ))
-
-        report_data = ReportData(
-            profile=profile,
-            metrics=metrics,
-            recent_posts=[],
-            ai_insights=insights,
-            overall_score=int(report.basic_metrics.get("engagement_rate", 50)),
-            generated_at=report.created_at,
-        )
-
-        return ReportResponse(
-            report_id=report.id,
-            username=report.username,
-            status=AnalysisStatus.COMPLETED,
-            report_data=report_data,
-            image_url=None,  # TODO: 리포트 이미지 생성 후 URL 설정
-            created_at=report.created_at,
-            expires_at=report.expires_at,
-        )
+        # Report 모델을 직접 반환 (프론트엔드 타입과 일치)
+        data = report.model_dump()
+        # datetime 직렬화
+        data["created_at"] = report.created_at.isoformat()
+        data["expires_at"] = report.expires_at.isoformat()
+        return data
 
     except ReportExpiredError:
         raise HTTPException(

@@ -30,6 +30,10 @@ from app.utils.exceptions import (
     AIServiceError,
     MoonshotAPIError,
     AnalysisTimeoutError,
+    AnalysisParsingError,
+    ProfileNotFoundError,
+    PrivateAccountError,
+    RateLimitError,
 )
 from app.services.report_service import report_service, ReportCreationError
 from app.services.analytics_service import analytics_service
@@ -40,6 +44,31 @@ logger = get_logger("analysis_router")
 struct_logger = structlog.get_logger()
 
 router = APIRouter()
+
+
+def _get_user_friendly_error_message(e: Exception) -> str:
+    """예외를 사용자 친화적인 메시지로 변환"""
+    if isinstance(e, ProfileNotFoundError):
+        username = getattr(e, "username", "")
+        return f"@{username} 계정을 찾을 수 없습니다. 아이디를 다시 확인해주세요."
+    if isinstance(e, PrivateAccountError):
+        return "비공개 계정은 분석할 수 없습니다. 계정을 공개로 전환한 후 다시 시도해주세요."
+    if isinstance(e, RateLimitError):
+        return "인스타그램에서 일시적으로 요청을 제한하고 있습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, AnalysisTimeoutError):
+        return "분석 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, AnalysisParsingError):
+        return "AI 분석 결과를 처리하는 중 오류가 발생했습니다. 다시 시도해주세요."
+    if isinstance(e, MoonshotAPIError):
+        msg = str(e).lower()
+        if "401" in msg or "authentication" in msg or "invalid" in msg:
+            return "AI 분석 서비스에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+        if "429" in msg or "rate" in msg:
+            return "AI 분석 서비스 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+        return "AI 분석 서비스에 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, AIServiceError):
+        return "AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    return "분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
 
 # Rate Limiter 인스턴스 (main.py에서 주입됨)
 limiter = Limiter(key_func=get_remote_address)
@@ -93,7 +122,7 @@ async def _process_analysis(report_id: str) -> dict:
 
         if report:
             report.status = ReportStatus.FAILED
-            report.error_message = str(e)
+            report.error_message = _get_user_friendly_error_message(e)
             report.completed_at = datetime.utcnow()
             report_service.storage.save(report)
 
@@ -164,7 +193,6 @@ async def start_analysis(
             report_id = report.id
 
             # storage에 저장
-            from app.services.report_service import report_service
             report_service.storage.save(report)
 
             # 큐에 등록

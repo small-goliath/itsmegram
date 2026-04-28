@@ -20,6 +20,7 @@ from app.models.schemas import (
     ProfileData,
     ReportData,
 )
+from app.config import get_settings
 from app.services.cache_service import cache_service
 from app.utils.exceptions import (
     AIServiceError,
@@ -45,16 +46,16 @@ class AIService:
         Args:
             api_key: Moonshot API 키 (None이면 환경변수에서 로드)
         """
-        self.api_key = api_key or os.getenv("MOONSHOT_API_KEY", "")
+        self.api_key = api_key or get_settings().moonshot_api_key
         if not self.api_key:
             logger.warning("moonshot_api_key_not_set")
 
         self.client = openai.OpenAI(
             api_key=self.api_key,
-            base_url="https://api.moonshot.cn/v1"
+            base_url="https://api.moonshot.ai/v1"
         )
-        self.model = "moonshot-v1-8k"
-        self.timeout_seconds = 30
+        self.model = "kimi-k2.5"
+        self.timeout_seconds = 120
         self.max_retries = 2
 
         logger.info("ai_service_initialized", model=self.model)
@@ -89,6 +90,7 @@ class AIService:
         """
         profile = data.profile
         posts = data.posts
+        has_posts = len(posts) > 0
 
         # 기본 메트릭스 계산
         total_likes = sum(p.likes for p in posts)
@@ -106,43 +108,71 @@ class AIService:
             hashtag_counts[tag] = hashtag_counts.get(tag, 0) + 1
         top_hashtags = sorted(hashtag_counts.items(), key=lambda x: x[1], reverse=True)[:10]
 
-        return f"""다음 인스타그램 계정 데이터를 분석하여 JSON 형식으로 리포트를 생성해주세요:
+        # 프로필 기반 지표 계산 (포스트 데이터 없을 때 활용)
+        ff_ratio = round(profile.following / profile.followers, 2) if profile.followers > 0 else 0
+        posts_per_follower = round(profile.posts_count / profile.followers, 3) if profile.followers > 0 else 0
 
-## 프로필 정보
-- 사용자명: {profile.username}
-- 전체 이름: {profile.full_name or '(없음)'}
-- 팔로워: {profile.followers:,}
-- 팔로잉: {profile.following:,}
-- 게시물 수: {profile.posts_count}
-- 소개: {profile.biography or '(없음)'}
-- 인증 계정: {'예' if profile.is_verified else '아니오'}
-
-## 기본 통계 (참고용)
+        if has_posts:
+            data_section = f"""## 기본 통계
 - 평균 좋아요: {avg_likes:.1f}
 - 평균 댓글: {avg_comments:.1f}
 - 참여율: {engagement_rate:.2f}%
 - 주요 해시태그: {', '.join([f'#{tag}({count}회)' for tag, count in top_hashtags]) if top_hashtags else '(없음)'}
 
-## 최근 게시물 {len(posts)}개
-{self._format_posts(posts)}
+## 최근 게시물 {len(posts)}개 (실제 데이터)
+{self._format_posts(posts)}"""
+        else:
+            data_section = f"""## 프로필 통계 분석 (게시물 데이터 미수집 - 프로필 신호로 분석)
+- 팔로워/팔로잉 비율(FF): {ff_ratio} (팔로잉 {profile.following:,}명 / 팔로워 {profile.followers:,}명)
+- 게시물 밀도: 팔로워 1명당 {posts_per_follower:.3f}개 게시물 ({profile.posts_count}개 / {profile.followers:,}명)
+- 계정 규모: {'마이크로 인플루언서 (1K-10K)' if 1000 <= profile.followers < 10000 else '나노 (1K 미만)' if profile.followers < 1000 else '미드 (10K-100K)' if profile.followers < 100000 else '매크로 (100K+)'}
+- 계정 성숙도: {'신규' if profile.posts_count < 50 else '초기' if profile.posts_count < 200 else '성숙' if profile.posts_count < 500 else '베테랑'} ({profile.posts_count}개 게시물 기준)
+
+## 이름/사용자명 심층 분석 (핵심 단서)
+사용자명: @{profile.username}
+표시 이름: {profile.full_name or '(없음)'}
+소개글: {profile.biography or '(없음)'}
+
+위 이름에서 의미 단위를 추출하여 콘텐츠/성향을 추론하세요:
+- 한국어 단어가 있다면 뜻을 분석하세요 (예: '도토리'=acorn, '작은'=small, '골리앗'=Goliath)
+- 영어/외래어 단어의 의미를 고려하세요
+- 이모지가 있다면 해당 이모지의 상징적 의미를 반영하세요 (예: 🌰=도토리/가을, 💪=운동/강함, 🍀=행운/자연)
+- 숫자/특수문자 패턴도 고려하세요 (예: '_'는 미니멀, 숫자는 생년월일이나 의미 있는 수)
+- 이름의 조합이 어떤 페르소나/브랜딩을 나타내는지 추론하세요
+
+※ 개별 게시물 데이터 없음 - 반드시 위 이름 분석을 중심으로 콘텐츠 성향을 구체적으로 추론하세요"""
+
+        return f"""다음 인스타그램 계정 데이터를 분석하여 JSON 형식으로 리포트를 생성해주세요:
+
+## 프로필 정보
+- 사용자명: {profile.username}
+- 전체 이름: {profile.full_name or '(없음)'}
+- 팔로워: {profile.followers:,}명
+- 팔로잉: {profile.following:,}명
+- 게시물 수: {profile.posts_count}개
+- 소개글: {profile.biography or '(없음)'}
+- 인증 계정: {'예' if profile.is_verified else '아니오'}
+
+{data_section}
 
 ## 출력 형식
-다음 JSON 구조로 분석 결과를 출력해주세요. 모든 값은 추정(~로 보입니다) 표현을 사용하고 객관적으로 작성해주세요:
+다음 JSON 구조로 분석 결과를 출력해주세요. 모든 서술형 값은 추정 표현(~로 보입니다, ~으로 추정됩니다 등)을 사용하세요:
 
 {{
     "basic_metrics": {{
-        "avg_likes": 숫자(0-100 범위로 정규화된 값),
-        "engagement_rate": 숫자(0-100 범위로 정규화된 값),
+        "avg_likes": 숫자(게시물당 예상 평균 좋아요 수 - 팔로워 규모 대비 현실적인 개수. 예: 팔로워 1000명이면 보통 30-100개),
+        "avg_comments": 숫자(게시물당 예상 평균 댓글 수 - 팔로워 규모 대비 현실적인 개수. 예: 팔로워 1000명이면 보통 1-10개),
+        "engagement_rate": 숫자(예상 참여율 % - 실제 % 수치로 제공. 일반적으로 1-10 사이. 예: 3.5),
         "post_type_ratio": {{"image": 비율, "video": 비율, "carousel": 비율}}
     }},
     "content_tendency": {{
         "categories": ["카테고리1", "카테고리2"],
-        "visual_style": "시각적 스타일 설명 (~스타일로 보입니다)",
-        "text_style": "텍스트 스타일 설명 (~한 것으로 추정됩니다)",
-        "hashtag_pattern": ["주요 패턴1", "주요 패턴2"]
+        "visual_style": "시각적 스타일 (~스타일로 보입니다)",
+        "text_style": "텍스트 스타일 (~한 것으로 추정됩니다)",
+        "hashtag_pattern": ["해시태그 패턴1", "해시태그 패턴2"]
     }},
     "lifestyle": {{
-        "interests": ["관심사1", "관심사2"],
+        "interests": ["관심사1", "관심사2", "관심사3"],
         "activity_pattern": "활동 패턴 (~할 것으로 보입니다)",
         "consumption": ["소비 성향1", "소비 성향2"]
     }},
@@ -157,18 +187,24 @@ class AIService:
     }},
     "growth_potential": {{
         "trend": "성장 추세 (~추세로 보입니다)",
-        "consistency": "일관성 수준 (~한 것으로 추정됩니다)",
-        "suggestions": ["개선 제안1", "개선 제안2", "개선 제안3"]
+        "consistency": "일관성 수준 (게시물 {profile.posts_count}개 기반 추정)",
+        "suggestions": ["구체적 제안1", "구체적 제안2", "구체적 제안3"]
     }},
-    "summary": "5-7줄의 요약 (각 문장은 ~로 보입니다, ~할 것으로 추정됩니다 등의 표현 사용)"
+    "summary": "5-7문장 요약. 팔로워 {profile.followers:,}명, 게시물 {profile.posts_count}개 등 실제 수치를 포함하고, 각 문장은 추정 표현 사용"
 }}
 
-## 주의사항
-1. 모든 분석은 추정 표현(~로 보입니다, ~할 것으로 추정됩니다, ~것으로 판단됩니다)을 사용하세요.
-2. 객관적이고 중립적인 시각에서 분석하세요.
-3. 수치는 0-100 범위로 정규화하여 제공하세요.
-4. summary는 5-7줄로 구성하고, 각 문장은 추정 표현을 포함하세요.
-5. JSON 형식만 출력하고, 다른 설명은 포함하지 마세요."""
+## 분석 지침
+1. 모든 서술형 분석은 추정 표현(~로 보입니다, ~으로 추정됩니다, ~것으로 판단됩니다)을 사용하세요.
+2. {'실제 게시물 데이터를 기반으로 구체적으로 분석하세요.' if has_posts else f"""개별 게시물 데이터가 없으므로 반드시 다음 순서로 분석하세요:
+   a) 먼저 표시 이름 "{profile.full_name or profile.username}"의 각 단어/이모지 의미를 해석하세요
+   b) 사용자명 "@{profile.username}"의 패턴과 의미를 분석하세요
+   c) 이 이름을 가진 사람이 어떤 콘텐츠를 올릴지 구체적으로 추론하세요
+   d) 팔로워 {profile.followers:,}명 / 팔로잉 {profile.following:,}명 / 게시물 {profile.posts_count}개 수치도 활용하세요
+   e) 절대 일반적/평균적인 분석을 하지 말고, 이 이름이 나타내는 특정 니치(niche)와 스타일에 맞게 분석하세요"""}
+3. basic_metrics의 avg_likes, avg_comments는 실제 개수 추정값을, engagement_rate는 실제 % 수치(0-20 사이)를 제공하세요.
+4. summary에는 팔로워 수, 게시물 수 등 실제 수치를 반드시 포함하세요.
+5. content_tendency의 categories에는 이름 분석을 통해 추론한 구체적인 콘텐츠 주제를 넣으세요 (예: "헬스/운동", "캐릭터 브랜딩", "일상 브이로그").
+6. JSON 형식만 출력하고 다른 설명은 포함하지 마세요."""
 
     def _normalize_value(self, value: float, min_val: float = 0, max_val: float = 100) -> float:
         """
@@ -181,29 +217,26 @@ class AIService:
 
     def _add_estimation_phrases(self, text: str) -> str:
         """
-        텍스트에 추정 표현 추가
+        텍스트에 추정 표현 추가 (이미 있으면 그대로 반환)
         """
         if not text:
             return text
 
         # 이미 추정 표현이 있는지 확인
-        estimation_patterns = [
-            r'~로 보입니다',
-            r'~할 것으로 추정됩니다',
-            r'~것으로 판단됩니다',
-            r'~것으로 예상됩니다',
-            r'~한 것으로 보입니다',
+        estimation_keywords = [
+            '보입니다', '추정됩니다', '판단됩니다', '예상됩니다',
+            '것으로', '수 있습니다', '것 같습니다',
         ]
 
-        for pattern in estimation_patterns:
-            if re.search(pattern, text):
+        for keyword in estimation_keywords:
+            if keyword in text:
                 return text
 
         # 추정 표현 추가
         if text.endswith('.'):
             text = text[:-1]
 
-        return f"{text} 것으로 추정됩니다."
+        return f"{text}으로 보입니다."
 
     def _post_process_analysis(self, analysis: Dict[str, Any], instagram_data: InstagramData) -> Dict[str, Any]:
         """
@@ -216,21 +249,26 @@ class AIService:
         Returns:
             Dict: 후처리된 분석 결과
         """
-        # basic_metrics 정규화
+        # basic_metrics: 게시물 있으면 실제 계산값으로 덮어쓰기
         if "basic_metrics" in analysis:
             metrics = analysis["basic_metrics"]
+            posts = instagram_data.posts
+            profile = instagram_data.profile
 
-            # avg_likes 정규화 (0-10000 범위를 0-100으로)
-            if "avg_likes" in metrics:
-                metrics["avg_likes"] = self._normalize_value(
-                    float(metrics["avg_likes"]), 0, 10000
-                )
-
-            # engagement_rate 정규화 (0-10% 범위를 0-100으로)
-            if "engagement_rate" in metrics:
-                metrics["engagement_rate"] = self._normalize_value(
-                    float(metrics["engagement_rate"]), 0, 10
-                )
+            if posts:
+                # 실제 게시물 데이터로 정확한 수치 계산
+                total_likes = sum(p.likes for p in posts)
+                total_comments = sum(p.comments for p in posts)
+                metrics["avg_likes"] = round(total_likes / len(posts), 1)
+                metrics["avg_comments"] = round(total_comments / len(posts), 1)
+                metrics["engagement_rate"] = round(
+                    (total_likes + total_comments) / (profile.followers * len(posts)) * 100, 2
+                ) if profile.followers else 0
+            else:
+                # 게시물 없으면 AI 추정값 그대로 사용 (이미 현실적인 수치)
+                metrics["avg_likes"] = round(float(metrics.get("avg_likes", 0)), 1)
+                metrics["avg_comments"] = round(float(metrics.get("avg_comments", 0)), 1)
+                metrics["engagement_rate"] = round(float(metrics.get("engagement_rate", 0)), 2)
 
         # personality.expression_strength 정규화
         if "personality" in analysis and "expression_strength" in analysis["personality"]:
@@ -241,16 +279,13 @@ class AIService:
         # summary 길이 확인 및 조정
         if "summary" in analysis:
             summary = analysis["summary"]
-            sentences = re.split(r'[.!?。]+', summary)
+            # 중복 추정 표현 제거 (예: "것으로 추정됩니다 것으로 추정됩니다")
+            summary = re.sub(r'(것으로 추정됩니다|으로 보입니다|것으로 판단됩니다)\s+(것으로 추정됩니다|으로 보입니다|것으로 판단됩니다)', r'\1', summary)
+            sentences = re.split(r'(?<=[.!?。])\s+', summary.strip())
             sentences = [s.strip() for s in sentences if s.strip()]
 
-            # 5-7줄로 조정
-            if len(sentences) < 5:
-                # 문장이 부족하면 추정 표현 추가
-                summary = self._add_estimation_phrases(summary)
-            elif len(sentences) > 7:
-                # 문장이 너무 많으면 처음 7개만 사용
-                summary = '. '.join(sentences[:7]) + '.'
+            if len(sentences) > 7:
+                summary = ' '.join(sentences[:7])
 
             analysis["summary"] = summary
 
@@ -318,7 +353,7 @@ class AIService:
                             },
                             {"role": "user", "content": prompt}
                         ],
-                        temperature=0.7,
+                        temperature=1,
                         response_format={"type": "json_object"},
                         timeout=self.timeout_seconds,
                     )

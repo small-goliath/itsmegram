@@ -24,12 +24,54 @@ from app.utils.exceptions import (
     ReportNotFoundError,
     ReportExpiredError,
     ReportCreationError,
+    MoonshotAPIError,
+    AnalysisTimeoutError,
+    AnalysisParsingError,
 )
 from app.config import get_settings
 
 settings = get_settings()
 
 logger = structlog.get_logger()
+
+
+def _get_user_friendly_error_message(e: Exception) -> str:
+    """예외를 사용자 친화적인 메시지로 변환"""
+    if isinstance(e, ProfileNotFoundError):
+        username = getattr(e, "username", "")
+        return f"@{username} 계정을 찾을 수 없습니다. 아이디를 다시 확인해주세요."
+    if isinstance(e, PrivateAccountError):
+        return "비공개 계정은 분석할 수 없습니다. 계정을 공개로 전환한 후 다시 시도해주세요."
+    if isinstance(e, RateLimitError):
+        msg = str(e)
+        if "Access denied" in msg or "접근 차단" in msg or "로그인" in msg:
+            return (
+                "Instagram 접근이 차단되어 게시물 데이터를 수집할 수 없습니다. "
+            )
+        return "인스타그램에서 일시적으로 요청을 제한하고 있습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, AnalysisTimeoutError):
+        return "분석 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, AnalysisParsingError):
+        return "AI 분석 결과를 처리하는 중 오류가 발생했습니다. 다시 시도해주세요."
+    if isinstance(e, MoonshotAPIError):
+        msg = str(e).lower()
+        if "401" in msg or "authentication" in msg or "invalid" in msg:
+            return "AI 분석 서비스에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+        if "429" in msg or "rate" in msg:
+            return "AI 분석 서비스 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+        return "AI 분석 서비스에 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, AIServiceError):
+        return "AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    if isinstance(e, InstagramServiceError):
+        msg = str(e)
+        if "INSTAGRAM_USERNAME" in msg or "로그인" in msg or "접근 제한" in msg:
+            return (
+                "게시물 데이터를 수집할 수 없어 분석을 진행할 수 없습니다. "
+                "Instagram의 접근 제한으로 게시물을 가져오지 못했습니다. "
+                "서버 .env 파일에 INSTAGRAM_USERNAME과 INSTAGRAM_PASSWORD를 설정해주세요."
+            )
+        return "인스타그램 데이터를 가져오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+    return "분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
 
 
 class ReportService:
@@ -90,9 +132,8 @@ class ReportService:
                     posts_count=len(instagram_data.posts)
                 )
             except ProfileNotFoundError as e:
-                error_msg = f"Profile '{username}' not found on Instagram"
+                error_msg = f"@{username} 계정을 찾을 수 없습니다. 아이디를 다시 확인해주세요."
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -101,9 +142,8 @@ class ReportService:
                 raise ReportCreationError(error_msg, username=username)
 
             except PrivateAccountError as e:
-                error_msg = f"Account '{username}' is private and cannot be analyzed"
+                error_msg = "비공개 계정은 분석할 수 없습니다. 계정을 공개로 전환한 후 다시 시도해주세요."
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -112,9 +152,14 @@ class ReportService:
                 raise ReportCreationError(error_msg, username=username)
 
             except RateLimitError as e:
-                error_msg = "Instagram API rate limit exceeded. Please try again later."
+                _msg = str(e)
+                if "Access denied" in _msg or "접근 차단" in _msg or "로그인" in _msg:
+                    error_msg = (
+                        "Instagram 접근이 차단되어 게시물 데이터를 수집할 수 없습니다. "
+                    )
+                else:
+                    error_msg = "인스타그램에서 일시적으로 요청을 제한하고 있습니다. 잠시 후 다시 시도해주세요."
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -123,9 +168,8 @@ class ReportService:
                 raise ReportCreationError(error_msg, username=username)
 
             except InstagramServiceError as e:
-                error_msg = f"Failed to fetch Instagram data: {e.message}"
+                error_msg = "인스타그램 데이터를 가져오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -142,10 +186,9 @@ class ReportService:
                     username=username,
                     has_summary="summary" in analysis_result
                 )
-            except AIServiceError as e:
-                error_msg = f"AI analysis failed: {e.message}"
+            except AnalysisTimeoutError:
+                error_msg = "분석 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -153,10 +196,45 @@ class ReportService:
                 )
                 raise ReportCreationError(error_msg, username=username)
 
-            except Exception as e:
-                error_msg = f"Unexpected error during AI analysis: {str(e)}"
+            except AnalysisParsingError:
+                error_msg = "AI 분석 결과를 처리하는 중 오류가 발생했습니다. 다시 시도해주세요."
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
+                raise ReportCreationError(error_msg, username=username)
+
+            except MoonshotAPIError as e:
+                raw = str(e).lower()
+                if "401" in raw or "authentication" in raw or "invalid" in raw:
+                    error_msg = "AI 분석 서비스에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
+                elif "429" in raw or "rate" in raw:
+                    error_msg = "AI 분석 서비스 요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+                else:
+                    error_msg = "AI 분석 서비스에 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+                await self._mark_report_failed(report.id, error_msg)
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
+                raise ReportCreationError(error_msg, username=username)
+
+            except AIServiceError:
+                error_msg = "AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+                await self._mark_report_failed(report.id, error_msg)
+                await analytics_service.track_analysis_failed(
+                    report_id=report.id,
+                    username=username,
+                    error_message=error_msg,
+                )
+                raise ReportCreationError(error_msg, username=username)
+
+            except Exception:
+                error_msg = "분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+                await self._mark_report_failed(report.id, error_msg)
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -186,7 +264,6 @@ class ReportService:
                     status="completed"
                 )
 
-                # 분석 완료 트래킹
                 await analytics_service.track_analysis_complete(
                     report_id=report.id,
                     username=username,
@@ -198,10 +275,9 @@ class ReportService:
 
                 return report.id
 
-            except Exception as e:
-                error_msg = f"Failed to update report: {str(e)}"
+            except Exception:
+                error_msg = "리포트 저장 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -212,11 +288,10 @@ class ReportService:
         except ReportCreationError:
             raise
         except Exception as e:
-            error_msg = f"Unexpected error during report creation: {str(e)}"
+            error_msg = "분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
             logger.error("unexpected_report_creation_error", username=username, error=str(e))
             try:
                 await self._mark_report_failed(report.id, error_msg)
-                # 분석 실패 트래킹
                 await analytics_service.track_analysis_failed(
                     report_id=report.id,
                     username=username,
@@ -441,7 +516,14 @@ class ReportService:
             # 리포트 업데이트
             report = await self.storage.get_report(report_id)
             if report:
-                report.basic_metrics = analysis_result.get("basic_metrics", {})
+                basic_metrics = analysis_result.get("basic_metrics", {})
+                # 프로필 정보도 basic_metrics에 저장
+                basic_metrics["followers"] = instagram_data.profile.followers
+                basic_metrics["following"] = instagram_data.profile.following
+                basic_metrics["full_name"] = instagram_data.profile.full_name
+                basic_metrics["biography"] = instagram_data.profile.biography
+                basic_metrics["is_verified"] = instagram_data.profile.is_verified
+                report.basic_metrics = basic_metrics
                 report.content_tendency = analysis_result.get("content_tendency", {})
                 report.lifestyle = analysis_result.get("lifestyle", {})
                 report.personality = analysis_result.get("personality", {})
@@ -468,12 +550,13 @@ class ReportService:
 
         except Exception as e:
             logger.error("background_report_processing_failed", report_id=report_id, error=str(e))
-            await self._mark_report_failed(report_id, str(e))
+            user_msg = _get_user_friendly_error_message(e)
+            await self._mark_report_failed(report_id, user_msg)
             # 분석 실패 트래킹
             await analytics_service.track_analysis_failed(
                 report_id=report_id,
                 username=username,
-                error_message=str(e),
+                error_message=user_msg,
             )
 
 

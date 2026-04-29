@@ -55,7 +55,6 @@ class AIService:
             base_url="https://api.moonshot.ai/v1"
         )
         self.model = "kimi-k2.5"
-        self.timeout_seconds = 120
         self.max_retries = 2
 
         logger.info("ai_service_initialized", model=self.model)
@@ -341,24 +340,20 @@ class AIService:
             import asyncio
             loop = asyncio.get_event_loop()
 
-            response = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "당신은 인스타그램 계정 분석 전문가입니다. 데이터를 객관적으로 분석하고 추정 표현을 사용하여 의견을 제시해주세요."
-                            },
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=1,
-                        response_format={"type": "json_object"},
-                        timeout=self.timeout_seconds,
-                    )
-                ),
-                timeout=self.timeout_seconds + 5  # 추가 여유 시간
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "당신은 인스타그램 계정 분석 전문가입니다. 데이터를 객관적으로 분석하고 추정 표현을 사용하여 의견을 제시해주세요."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=1,
+                    response_format={"type": "json_object"},
+                )
             )
 
             content = response.choices[0].message.content
@@ -386,10 +381,6 @@ class AIService:
             )
 
             return analysis
-
-        except asyncio.TimeoutError:
-            logger.error("analysis_timeout", username=instagram_data.profile.username)
-            raise AnalysisTimeoutError(self.timeout_seconds)
 
         except openai.APIError as e:
             logger.error("moonshot_api_error", error=str(e))

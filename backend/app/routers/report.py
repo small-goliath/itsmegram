@@ -35,6 +35,57 @@ router = APIRouter()
 
 
 @router.get(
+    "/report/by-username/{username}",
+    responses={
+        200: {"description": "리포트 데이터"},
+        404: {"model": ErrorResponse, "description": "캐시된 리포트 없음"},
+        500: {"model": ErrorResponse, "description": "Server error"},
+    },
+    summary="username으로 리포트 조회",
+    description="username으로 캐시된 완료 리포트를 조회합니다. 7일 이내 분석 이력이 있으면 report_id와 데이터를 반환합니다.",
+)
+async def get_report_by_username(username: str) -> dict:
+    """
+    username으로 기존 완료 리포트를 조회합니다.
+
+    Returns:
+        dict: 리포트 데이터 (found=True) 또는 404
+
+    Example:
+        GET /api/v1/report/by-username/doto.ri_
+    """
+    try:
+        report_id = await report_service.storage.get_report_id_by_username(username.lower())
+
+        if not report_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No cached report found for '{username}'",
+            )
+
+        report = await report_service.get_report(report_id)
+
+        if not report or report.status != "completed":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No completed report found for '{username}'",
+            )
+
+        data = report.model_dump()
+        data["created_at"] = report.created_at.isoformat()
+        data["expires_at"] = report.expires_at.isoformat()
+        return data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve report: {str(e)}",
+        )
+
+
+@router.get(
     "/report/{report_id}",
     responses={
         404: {"model": ErrorResponse, "description": "Report not found"},
@@ -42,7 +93,7 @@ router = APIRouter()
         500: {"model": ErrorResponse, "description": "Server error"},
     },
     summary="분석 리포트 조회",
-    description="특정 리포트 ID로 완성된 분석 리포트를 조회합니다. 리포트는 생성 후 24시간 동안 유효합니다.",
+    description="특정 리포트 ID로 완성된 분석 리포트를 조회합니다. 리포트는 생성 후 7일 동안 유효합니다.",
 )
 async def get_report(report_id: str) -> dict:
     """

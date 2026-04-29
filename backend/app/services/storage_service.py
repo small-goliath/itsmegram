@@ -55,12 +55,29 @@ class BaseStorage(ABC):
         """리포트 존재 여부 확인"""
         pass
 
+    @abstractmethod
+    async def get_report_id_by_username(self, username: str) -> Optional[str]:
+        """username으로 완료된 리포트 ID 조회"""
+        pass
+
+    @abstractmethod
+    async def set_username_report_index(self, username: str, report_id: str, ttl_hours: int) -> None:
+        """username → report_id 인덱스 저장"""
+        pass
+
+    @abstractmethod
+    async def delete_username_report_index(self, username: str) -> None:
+        """username 인덱스 삭제"""
+        pass
+
 
 class MemoryStorage(BaseStorage):
     """메모리 기반 저장소 (Redis 없을 때 폴백)"""
 
-    def __init__(self, ttl_hours: int = 24):
+    def __init__(self, ttl_hours: int = 168):
         self._storage: Dict[str, Dict[str, Any]] = {}
+        self._username_index: Dict[str, str] = {}  # username → report_id
+        self._username_expires: Dict[str, datetime] = {}  # username → expires_at
         self._ttl_hours = ttl_hours
         self._lock = asyncio.Lock()
         logger.info("memory_storage_initialized", ttl_hours=ttl_hours)
@@ -171,6 +188,32 @@ class MemoryStorage(BaseStorage):
 
             return True
 
+    async def get_report_id_by_username(self, username: str) -> Optional[str]:
+        """username으로 완료된 리포트 ID 조회"""
+        async with self._lock:
+            report_id = self._username_index.get(username)
+            if not report_id:
+                return None
+            # 인덱스 만료 확인
+            expires_at = self._username_expires.get(username)
+            if expires_at and datetime.utcnow() > expires_at:
+                del self._username_index[username]
+                del self._username_expires[username]
+                return None
+            return report_id
+
+    async def set_username_report_index(self, username: str, report_id: str, ttl_hours: int) -> None:
+        """username → report_id 인덱스 저장"""
+        async with self._lock:
+            self._username_index[username] = report_id
+            self._username_expires[username] = datetime.utcnow() + timedelta(hours=ttl_hours)
+
+    async def delete_username_report_index(self, username: str) -> None:
+        """username 인덱스 삭제"""
+        async with self._lock:
+            self._username_index.pop(username, None)
+            self._username_expires.pop(username, None)
+
     async def cleanup_expired(self) -> int:
         """만료된 리포트 정리"""
         async with self._lock:
@@ -180,6 +223,16 @@ class MemoryStorage(BaseStorage):
             ]
             for key in expired_keys:
                 del self._storage[key]
+
+            # 만료된 username 인덱스 정리
+            now = datetime.utcnow()
+            expired_usernames = [
+                u for u, exp in self._username_expires.items()
+                if now > exp
+            ]
+            for u in expired_usernames:
+                self._username_index.pop(u, None)
+                self._username_expires.pop(u, None)
 
             if expired_keys:
                 logger.info("expired_reports_cleaned", count=len(expired_keys))
@@ -191,34 +244,34 @@ class RedisStorage(BaseStorage):
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6379,
-        db: int = 0,
-        ttl_hours: int = 24
+        url: str = "redis://localhost:6379/0",
+        ttl_hours: int = 168
     ):
-        self.host = host
-        self.port = port
-        self.db = db
+        self.url = url
         self.ttl = timedelta(hours=ttl_hours)
         self._redis = None
         self._connected = False
-        logger.info("redis_storage_initialized", host=host, port=port, db=db)
+        from urllib.parse import urlparse
+        try:
+            p = urlparse(url)
+            safe = url.replace(f":{p.password}@", ":****@") if p.password else url
+        except Exception:
+            safe = url
+        logger.info("redis_storage_initialized", url=safe)
 
     async def _get_redis(self):
         """Redis 연결 가져오기 (지연 로딩)"""
         if self._redis is None:
             try:
                 import redis.asyncio as redis
-                self._redis = redis.Redis(
-                    host=self.host,
-                    port=self.port,
-                    db=self.db,
+                self._redis = redis.from_url(
+                    self.url,
                     decode_responses=True
                 )
                 # 연결 테스트
                 await self._redis.ping()
                 self._connected = True
-                logger.info("redis_connected", host=self.host, port=self.port)
+                logger.info("redis_connected")
             except Exception as e:
                 logger.error("redis_connection_failed", error=str(e))
                 self._connected = False
@@ -340,6 +393,40 @@ class RedisStorage(BaseStorage):
             logger.error("redis_exists_error", report_id=report_id, error=str(e))
             return False
 
+    def _get_username_key(self, username: str) -> str:
+        """username 인덱스 Redis 키"""
+        return f"username_report:{username}"
+
+    async def get_report_id_by_username(self, username: str) -> Optional[str]:
+        """username으로 완료된 리포트 ID 조회"""
+        try:
+            redis = await self._get_redis()
+            report_id = await redis.get(self._get_username_key(username))
+            return report_id if report_id else None
+        except Exception as e:
+            logger.warning("redis_username_index_get_error", username=username, error=str(e))
+            return None
+
+    async def set_username_report_index(self, username: str, report_id: str, ttl_hours: int) -> None:
+        """username → report_id 인덱스 저장"""
+        try:
+            redis = await self._get_redis()
+            await redis.setex(
+                self._get_username_key(username),
+                timedelta(hours=ttl_hours),
+                report_id
+            )
+        except Exception as e:
+            logger.warning("redis_username_index_set_error", username=username, error=str(e))
+
+    async def delete_username_report_index(self, username: str) -> None:
+        """username 인덱스 삭제"""
+        try:
+            redis = await self._get_redis()
+            await redis.delete(self._get_username_key(username))
+        except Exception as e:
+            logger.warning("redis_username_index_delete_error", username=username, error=str(e))
+
     async def close(self):
         """Redis 연결 종료"""
         if self._redis:
@@ -355,25 +442,34 @@ class ReportStorage:
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        db: Optional[int] = None,
         ttl_hours: Optional[int] = None
     ):
         self._redis_storage: Optional[RedisStorage] = None
         self._memory_storage: Optional[MemoryStorage] = None
         self._using_redis = False
 
-        # 환경 변수에서 설정 로드
-        self.host = host or os.getenv("REDIS_HOST", "localhost")
-        self.port = port or int(os.getenv("REDIS_PORT", "6379"))
-        self.db = db or int(os.getenv("REDIS_DB", "0"))
-        self.ttl_hours = ttl_hours or int(os.getenv("REPORT_TTL_HOURS", "24"))
+        # pydantic Settings에서 설정 로드
+        from app.config import get_settings
+        settings = get_settings()
+
+        self.redis_url = settings.redis_url
+        self.ttl_hours = ttl_hours or settings.report_ttl_hours
+        self._redis_enabled = settings.redis_enabled
+
+        # 비밀번호 마스킹한 URL로 로그
+        from urllib.parse import urlparse
+        safe_url = self.redis_url
+        try:
+            p = urlparse(self.redis_url)
+            if p.password:
+                safe_url = self.redis_url.replace(f":{p.password}@", ":****@")
+        except Exception:
+            pass
 
         logger.info(
             "report_storage_initialized",
-            redis_host=self.host,
-            redis_port=self.port,
+            redis_enabled=self._redis_enabled,
+            redis_url=safe_url,
             ttl_hours=self.ttl_hours
         )
 
@@ -383,32 +479,39 @@ class ReportStorage:
         if self._using_redis and self._redis_storage:
             return self._redis_storage
 
-        # 메모리 저장소가 초기화된 경우
-        if self._memory_storage:
+        # REDIS_ENABLED=false 면 메모리 사용
+        if not self._redis_enabled:
+            if self._memory_storage is None:
+                self._memory_storage = MemoryStorage(ttl_hours=self.ttl_hours)
+                logger.info("storage_using_memory", reason="REDIS_ENABLED=false", ttl_hours=self.ttl_hours)
             return self._memory_storage
 
-        # Redis 연결 시도
+        # Redis 연결 시도 (최초 연결 또는 재연결)
         try:
             if self._redis_storage is None:
                 self._redis_storage = RedisStorage(
-                    host=self.host,
-                    port=self.port,
-                    db=self.db,
+                    url=self.redis_url,
                     ttl_hours=self.ttl_hours
                 )
-                # 연결 테스트
-                await self._redis_storage._get_redis()
-
+            # 연결 테스트 (재연결 포함)
+            await self._redis_storage._get_redis()
             self._using_redis = True
-            logger.info("using_redis_storage")
+            logger.info(
+                "storage_redis_connected",
+                redis_url="(url logged at init)",
+                ttl_hours=self.ttl_hours
+            )
             return self._redis_storage
 
         except Exception as e:
-            logger.warning("redis_unavailable_using_memory", error=str(e))
-            # 메모리 저장소로 폴백
+            self._using_redis = False
+            logger.warning(
+                "storage_redis_failed_fallback_to_memory",
+                error=str(e)
+            )
+            # 메모리 저장소로 폴백 (재연결 시도를 위해 _redis_storage는 유지)
             if self._memory_storage is None:
                 self._memory_storage = MemoryStorage(ttl_hours=self.ttl_hours)
-            self._using_redis = False
             return self._memory_storage
 
     async def save_report(self, report: Report) -> str:
@@ -440,6 +543,21 @@ class ReportStorage:
         """리포트 존재 여부 확인"""
         storage = await self._get_storage()
         return await storage.report_exists(report_id)
+
+    async def get_report_id_by_username(self, username: str) -> Optional[str]:
+        """username으로 완료된 리포트 ID 조회"""
+        storage = await self._get_storage()
+        return await storage.get_report_id_by_username(username)
+
+    async def set_username_report_index(self, username: str, report_id: str, ttl_hours: int) -> None:
+        """username → report_id 인덱스 저장"""
+        storage = await self._get_storage()
+        await storage.set_username_report_index(username, report_id, ttl_hours)
+
+    async def delete_username_report_index(self, username: str) -> None:
+        """username 인덱스 삭제"""
+        storage = await self._get_storage()
+        await storage.delete_username_report_index(username)
 
     def is_using_redis(self) -> bool:
         """Redis 사용 여부 확인"""

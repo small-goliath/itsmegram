@@ -101,12 +101,23 @@ class ReportService:
             username: 분석할 인스타그램 사용자명
 
         Returns:
-            str: 생성된 리포트 ID
+            str: 생성된 리포트 ID (기존 캐시 또는 새 리포트)
 
         Raises:
             ReportCreationError: 리포트 생성 실패 시
         """
         logger.info("starting_report_creation", username=username)
+
+        # 0. 동일 username의 기존 완료 리포트 캐시 확인 (7일 이내)
+        cached_report_id = await self.storage.get_report_id_by_username(username)
+        if cached_report_id:
+            try:
+                cached = await self.storage.get_report(cached_report_id)
+                if cached and cached.status == "completed" and not cached.is_expired():
+                    logger.info("returning_cached_report", report_id=cached_report_id, username=username)
+                    return cached_report_id
+            except Exception:
+                pass  # 캐시 miss → 새로 생성
 
         # 1. 리포트 생성 (processing 상태)
         report = Report(
@@ -257,6 +268,13 @@ class ReportService:
                 report.status = "completed"
 
                 await self.storage.save_report(report)
+
+                # username → report_id 인덱스 저장 (7일 캐시)
+                await self.storage.set_username_report_index(
+                    username=username,
+                    report_id=report.id,
+                    ttl_hours=self.storage.ttl_hours
+                )
 
                 logger.info(
                     "report_completed",
@@ -474,8 +492,19 @@ class ReportService:
             background_tasks: FastAPI BackgroundTasks (선택적)
 
         Returns:
-            str: 생성된 리포트 ID
+            str: 생성된 리포트 ID (기존 캐시 또는 새 리포트)
         """
+        # 동일 username의 기존 완료 리포트 캐시 확인 (7일 이내)
+        cached_report_id = await self.storage.get_report_id_by_username(username)
+        if cached_report_id:
+            try:
+                cached = await self.storage.get_report(cached_report_id)
+                if cached and cached.status == "completed" and not cached.is_expired():
+                    logger.info("returning_cached_report", report_id=cached_report_id, username=username)
+                    return cached_report_id
+            except Exception:
+                pass  # 캐시 miss → 새로 생성
+
         # 리포트 생성 (processing 상태)
         report = Report(
             username=username,
@@ -537,6 +566,13 @@ class ReportService:
                 report.status = "completed"
 
                 await self.storage.save_report(report)
+
+                # username → report_id 인덱스 저장 (7일 캐시)
+                await self.storage.set_username_report_index(
+                    username=username,
+                    report_id=report_id,
+                    ttl_hours=self.storage.ttl_hours
+                )
 
             logger.info("background_report_processing_completed", report_id=report_id)
 

@@ -26,8 +26,8 @@ class Report(BaseModel):
     username: str = Field(..., description="분석된 인스타그램 사용자명")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="생성 시간")
     expires_at: datetime = Field(
-        default_factory=lambda: datetime.utcnow() + timedelta(hours=24),
-        description="만료 시간 (기본 24시간)"
+        default_factory=lambda: datetime.utcnow() + timedelta(hours=168),
+        description="만료 시간 (기본 7일)"
     )
 
     # 리포트 섹션들 (AI 분석 결과)

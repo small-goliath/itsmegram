@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # 리포트 설정
-    report_ttl_hours: int = 24  # 리포트 캐시 유효 시간
+    report_ttl_hours: int = 168  # 리포트 캐시 유효 시간 (7일)
 
     # 신뢰할 수 있는 호스트 설정 (프로덕션)
     allowed_hosts: str = "*"

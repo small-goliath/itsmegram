@@ -51,9 +51,23 @@ async def lifespan(app: FastAPI):
         debug=settings.debug,
         environment="development" if settings.debug else "production"
     )
+
+    # 서버 시작 시 즉시 저장소 연결 확립 (lazy 연결 방지)
+    from app.services.storage_service import report_storage
+    try:
+        await report_storage._get_storage()
+        logger.info(
+            "storage_ready",
+            backend="redis" if report_storage.is_using_redis() else "memory"
+        )
+    except Exception as e:
+        logger.error("storage_init_failed", error=str(e))
+
     yield
+
     # Shutdown
     logger.info("application_shutting_down")
+    await report_storage.close()
 
 
 # FastAPI 앱 인스턴스 생성
